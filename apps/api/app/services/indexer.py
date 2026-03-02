@@ -179,8 +179,14 @@ class IndexerService:
 
             # Persist Document record if DB session available
             doc_id = str(uuid4())
+            skip_chunks = False
             if db_session is not None:
-                await self._persist_document(db_session, doc_id, doc, doc_hash)
+                actual_doc_id = await self._persist_document(db_session, doc_id, doc, doc_hash)
+                if actual_doc_id is None:
+                    # Document already existed and chunks are already stored
+                    skip_chunks = True
+                else:
+                    doc_id = actual_doc_id
 
             # Chunk the text
             chunk_texts = _chunk_text(text)
@@ -204,7 +210,7 @@ class IndexerService:
                 }
                 all_chunks.append(chunk_record)
 
-                if db_session is not None:
+                if db_session is not None and not skip_chunks:
                     await self._persist_chunk(db_session, doc_id, chunk_record)
 
         if db_session is not None:
@@ -225,8 +231,16 @@ class IndexerService:
         doc_id: str,
         doc: dict[str, Any],
         doc_hash: str,
-    ) -> None:
-        """Insert a Document row (soft-skip on hash collision)."""
+    ) -> str | None:
+        """Insert a Document row (soft-skip on hash or URL collision).
+
+        Returns
+        -------
+        str
+            The document ID that was inserted (same as *doc_id*).
+        None
+            If the document already exists (by hash or URL) and was skipped.
+        """
         from sqlalchemy import text as sa_text
 
         # Check if this content_hash already exists
@@ -234,9 +248,22 @@ class IndexerService:
             sa_text("SELECT id FROM documents WHERE content_hash = :h"),
             {"h": doc_hash},
         )
-        if result.first() is not None:
+        existing = result.first()
+        if existing is not None:
             logger.debug("Document already indexed (hash match): %s", doc.get("url"))
-            return
+            return None
+
+        # Check if this URL already exists (url column is UNIQUE)
+        url = doc.get("url", "")
+        if url:
+            result = await db_session.execute(
+                sa_text("SELECT id FROM documents WHERE url = :u"),
+                {"u": url},
+            )
+            existing = result.first()
+            if existing is not None:
+                logger.debug("Document already indexed (URL match): %s", url)
+                return None
 
         await db_session.execute(
             sa_text(
@@ -246,7 +273,7 @@ class IndexerService:
             ),
             {
                 "id": doc_id,
-                "url": doc.get("url", ""),
+                "url": url,
                 "title": doc.get("title", ""),
                 "domain": doc.get("domain", ""),
                 "pub": doc.get("published_at"),
@@ -257,6 +284,7 @@ class IndexerService:
                 "meta": "{}",
             },
         )
+        return doc_id
 
     @staticmethod
     async def _persist_chunk(

@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Run {
+  id              String    @id @db.Uuid
+  query           String
+  constraintsJson Json?     @map("constraints_json")
+  status          String    @db.VarChar(20)
+  reportMd        String?   @map("report_md")
+  reportJson      Json?     @map("report_json")
+  scoresJson      Json?     @map("scores_json")
+  createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
+  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(6)
+  modelName       String?   @map("model_name") @db.VarChar(100)
+  iterationCount  Int       @default(0) @map("iteration_count")
+  events          RunEvent[]
+
+  @@map("runs")
+}
+
+model RunEvent {
+  id         String    @id @db.Uuid
+  runId      String    @map("run_id") @db.Uuid
+  timestamp  DateTime  @db.Timestamptz(6)
+  state      String    @db.VarChar(50)
+  message    String
+  payloadJson Json?    @map("payload_json")
+  run        Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId], map: "ix_run_events_run_id")
+  @@map("run_events")
+}
