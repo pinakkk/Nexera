@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Menu } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 
@@ -42,14 +43,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         onCloseMobile={() => setMobileOpen(false)}
       />
       <div className="relative flex min-w-0 flex-1">
-        <button
+        {/* Mobile menu button */}
+        <motion.button
           type="button"
           onClick={() => setMobileOpen(true)}
-          className="fixed left-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-2xl border border-black/10 bg-white/92 text-neutral-700 shadow-lg shadow-slate-900/10 backdrop-blur-xl backdrop-saturate-150 transition-all hover:scale-105 hover:bg-white active:scale-95 md:hidden dark:border-white/15 dark:bg-[#121a26]/92 dark:text-neutral-100 dark:shadow-black/45 dark:hover:bg-[#172132]"
+          className="fixed left-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-2xl border border-black/[0.06] bg-white/90 text-neutral-700 shadow-lg shadow-black/[0.06] backdrop-blur-xl transition-all hover:scale-105 hover:bg-white active:scale-95 md:hidden dark:border-white/[0.08] dark:bg-[#0e1016]/90 dark:text-neutral-100 dark:shadow-black/30 dark:hover:bg-[#131821]"
           aria-label="Open menu"
+          whileTap={{ scale: 0.92 }}
         >
-          <Menu size={18} />
-        </button>
+          <Menu size={18} strokeWidth={1.75} />
+        </motion.button>
+
         <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
           {children}
         </main>

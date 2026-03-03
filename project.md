@@ -136,7 +136,7 @@ evaluating
 ```
 # Data layer (storage design)
 
-## Recommended: Neon Postgres + Prisma
+## Recommended: MongoDB Atlas + Prisma
 
 **Core tables**
 ● runs
@@ -233,4 +233,3 @@ Store small, safe, useful signals:
 ○ “Too few primary sources”
 ○ “Contradiction unresolved”
 This lets future runs converge faster without changing core logic.
-

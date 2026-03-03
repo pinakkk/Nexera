@@ -5,9 +5,24 @@ import { getRun, normalizeRunEvent } from './api';
 /*  SSE client for subscribing to run event streams                    */
 /* ------------------------------------------------------------------ */
 
-const BASE_URL =
+const RAW_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 const SETTINGS_STORAGE_KEY = 'research-agent-settings';
+const BASE_URL = normalizeBaseUrl(RAW_BASE_URL);
+
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return 'http://localhost:8000';
+  const withProtocol = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `http://${trimmed}`;
+  try {
+    const parsed = new URL(withProtocol);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return 'http://localhost:8000';
+  }
+}
 
 function getBaseUrl(): string {
   if (typeof window === 'undefined') {
@@ -18,7 +33,7 @@ function getBaseUrl(): string {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) return BASE_URL;
     const parsed = JSON.parse(raw) as { apiUrl?: string };
-    return parsed.apiUrl?.trim() || BASE_URL;
+    return parsed.apiUrl?.trim() ? normalizeBaseUrl(parsed.apiUrl) : BASE_URL;
   } catch {
     return BASE_URL;
   }

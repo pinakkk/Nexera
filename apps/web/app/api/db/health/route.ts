@@ -5,33 +5,34 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const databaseUrl = process.env.DATABASE_URL ?? '';
-  if (!databaseUrl || databaseUrl.includes('<')) {
+  const isMongoUrl =
+    databaseUrl.startsWith('mongodb://') ||
+    databaseUrl.startsWith('mongodb+srv://');
+  if (!databaseUrl || databaseUrl.includes('<') || !isMongoUrl) {
     return NextResponse.json(
       {
         status: 'error',
-        provider: 'neon-postgres-prisma',
+        provider: 'mongodb-atlas-prisma',
         message:
-          'DATABASE_URL is not configured. Set a valid Neon connection string.',
+          'DATABASE_URL is not configured. Set a valid MongoDB Atlas connection string.',
       },
       { status: 503 },
     );
   }
 
   try {
-    const result = await prisma.$queryRawUnsafe<Array<{ ok: number }>>(
-      'SELECT 1 as ok',
-    );
+    const result = await prisma.$runCommandRaw({ ping: 1 });
     return NextResponse.json({
       status: 'ok',
-      provider: 'neon-postgres-prisma',
+      provider: 'mongodb-atlas-prisma',
       result,
     });
   } catch (error) {
-    console.error('[api/db/health] Prisma/Neon check failed', error);
+    console.error('[api/db/health] Prisma/MongoDB check failed', error);
     return NextResponse.json(
       {
         status: 'error',
-        provider: 'neon-postgres-prisma',
+        provider: 'mongodb-atlas-prisma',
         message:
           error instanceof Error ? error.message : 'Unknown Prisma DB error',
       },

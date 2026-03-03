@@ -1,0 +1,13 @@
+{
+  "scripts": {
+    "api": "cd apps/api && source .venv/bin/activate && uvicorn app.main:app --reload --port 8000",
+    "web": "cd apps/web && npm run dev",
+    "dev": "make dev"
+  },
+  "devDependencies": {
+    "prisma": "^7.4.2"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.4.2"
+  }
+}

@@ -3,21 +3,22 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
 model Run {
-  id              String    @id @db.Uuid
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  publicId        String    @unique @default(uuid()) @map("public_id")
   query           String
   constraintsJson Json?     @map("constraints_json")
-  status          String    @db.VarChar(20)
+  status          String
   reportMd        String?   @map("report_md")
   reportJson      Json?     @map("report_json")
   scoresJson      Json?     @map("scores_json")
-  createdAt       DateTime  @map("created_at") @db.Timestamptz(6)
-  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(6)
-  modelName       String?   @map("model_name") @db.VarChar(100)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  finishedAt      DateTime? @map("finished_at")
+  modelName       String?   @map("model_name")
   iterationCount  Int       @default(0) @map("iteration_count")
   events          RunEvent[]
 
@@ -25,13 +26,14 @@ model Run {
 }
 
 model RunEvent {
-  id         String    @id @db.Uuid
-  runId      String    @map("run_id") @db.Uuid
-  timestamp  DateTime  @db.Timestamptz(6)
-  state      String    @db.VarChar(50)
-  message    String
-  payloadJson Json?    @map("payload_json")
-  run        Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  externalId  String    @unique @default(uuid()) @map("external_id")
+  runId       String    @map("run_id") @db.ObjectId
+  timestamp   DateTime  @default(now())
+  state       String
+  message     String
+  payloadJson Json?     @map("payload_json")
+  run         Run       @relation(fields: [runId], references: [id])
 
   @@index([runId], map: "ix_run_events_run_id")
   @@map("run_events")

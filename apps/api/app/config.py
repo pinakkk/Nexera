@@ -20,11 +20,16 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str = ""
     SEARCH_MAX_RESULTS: int = 5
 
+    # ── Academic APIs ────────────────────────────────────────────────────────
+    SEMANTIC_SCHOLAR_API_KEY: str = ""
+    SEMANTIC_SCHOLAR_ENDPOINT: str = "https://api.semanticscholar.org/graph/v1"
+    ARXIV_ENDPOINT: str = "https://export.arxiv.org/api"
+
     # ── Database ─────────────────────────────────────────────────────────────
-    DATABASE_URL: str = "postgresql+psycopg://<user>:<password>@<host>/<db>?sslmode=require"
-    DATABASE_URL_SYNC: str = "postgresql://<user>:<password>@<host>/<db>?sslmode=require"
+    DATABASE_URL: str = "mongodb+srv://user1:okdarling07@nexera.kqvy0c5.mongodb.net/nexera?appName=Nexera"
     DB_STARTUP_RETRIES: int = 5
     DB_STARTUP_RETRY_DELAY_SECONDS: float = 2.0
+    ALLOW_START_WITHOUT_DB: bool = False
 
     # ── Redis (optional – used for caching / pub-sub) ────────────────────────
     REDIS_URL: str | None = None
@@ -42,8 +47,45 @@ class Settings(BaseSettings):
     INTEGRATION_CHECK_ON_STARTUP: bool = True
     INTEGRATION_CHECK_TIMEOUT_SECONDS: float = 12.0
 
+    # ── Parallel workers / cost guardrails ────────────────────────────────────
+    MAX_FETCH_CONCURRENCY: int = 5
+    MAX_SEARCH_QUERIES_PER_RUN: int = 10
+    MAX_PAGES_PER_SUBQUESTION: int = 5
+    MAX_AGENT_ITERS: int = 4
+
+    # ── Interactive steering ─────────────────────────────────────────────────
+    USER_INPUT_TIMEOUT_SECONDS: int = 300  # 5 min, then auto-proceed
+
     # ── Optional: Cohere reranker ────────────────────────────────────────────
     COHERE_API_KEY: str | None = None
+
+    # ── Bright Data (primary web search) ─────────────────────────────────────
+    BRIGHTDATA_API_KEY: str = ""
+    BRIGHTDATA_SERP_ENDPOINT: str = "https://api.brightdata.com/serp"
+    BRIGHTDATA_SCRAPER_ENDPOINT: str = "https://api.brightdata.com/scraping"
+
+    # ── Research Gate ────────────────────────────────────────────────────────
+    RESEARCH_GATE_ENABLED: bool = True
+
+    # ── Model Routing (complexity-based) ─────────────────────────────────────
+    # Override defaults per mode/role: MODEL_ROUTER_<MODE>_<ROLE>
+    MODEL_ROUTER_FAST_WRITER: str = ""
+    MODEL_ROUTER_FAST_EVALUATOR: str = ""
+    MODEL_ROUTER_BALANCED_WRITER: str = ""
+    MODEL_ROUTER_BALANCED_EVALUATOR: str = ""
+    MODEL_ROUTER_DEEP_WRITER: str = ""
+    MODEL_ROUTER_DEEP_EVALUATOR: str = ""
+
+    # ── Safety Models ────────────────────────────────────────────────────────
+    MODEL_SAFETY_PROMPT_GUARD: str = "meta-llama/llama-prompt-guard-2-86m"
+    MODEL_SAFETY_CONTENT_GUARD: str = "meta-llama/llama-guard-4-12b"
+
+    # ── Voice / STT ──────────────────────────────────────────────────────────
+    STT_MODEL: str = "whisper-large-v3-turbo"
+    STT_FALLBACK_MODEL: str = "whisper-large-v3"
+
+    # ── PDF Reports ──────────────────────────────────────────────────────────
+    REPORTS_DIR: str = "reports"
 
     model_config = {
         "env_file": ".env",

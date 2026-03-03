@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { listRuns } from '@/lib/api';
+import { motion, AnimatePresence } from 'framer-motion';
+import { listRuns, deleteRun } from '@/lib/api';
 import { RunStatus, RunStatusValue } from '@/lib/types';
 import {
   Clock,
@@ -11,6 +12,12 @@ import {
   Inbox,
   ArrowRight,
   RefreshCw,
+  Trash2,
+  X,
+  CheckCircle2,
+  Loader2,
+  AlertTriangle,
+  Sparkles,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -19,27 +26,31 @@ import {
 
 const statusConfig: Record<
   RunStatusValue,
-  { label: string; dotClass: string; badgeClass: string }
+  { label: string; dotClass: string; chipClass: string; icon: typeof Clock }
 > = {
   pending: {
     label: 'Pending',
     dotClass: 'bg-neutral-400',
-    badgeClass: 'bg-neutral-500/10 text-neutral-700 dark:text-neutral-400 border border-neutral-500/20',
+    chipClass: 'chip-neutral',
+    icon: Clock,
   },
   running: {
     label: 'Running',
     dotClass: 'bg-blue-400 animate-pulse',
-    badgeClass: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20',
+    chipClass: 'chip-info',
+    icon: Loader2,
   },
   completed: {
     label: 'Completed',
     dotClass: 'bg-emerald-400',
-    badgeClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20',
+    chipClass: 'chip-success',
+    icon: CheckCircle2,
   },
   failed: {
     label: 'Failed',
     dotClass: 'bg-red-400',
-    badgeClass: 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20',
+    chipClass: 'chip-error',
+    icon: AlertTriangle,
   },
 };
 
@@ -49,7 +60,7 @@ const statusConfig: Record<
 
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen).trimEnd() + '...';
+  return text.slice(0, maxLen).trimEnd() + '…';
 }
 
 function formatDate(iso: string): string {
@@ -76,25 +87,17 @@ function formatDate(iso: string): string {
 /*  Loading skeleton                                                   */
 /* ------------------------------------------------------------------ */
 
-function SkeletonRow() {
+function SkeletonCard() {
   return (
-    <div className="flex items-center gap-4 px-5 py-4 border-b border-black/10 dark:border-white/[0.06]">
-      <div className="flex-1 min-w-0 space-y-2">
-        <div className="h-4 w-3/4 bg-black/[0.06] dark:bg-white/[0.06] rounded animate-pulse" />
-        <div className="h-3 w-1/3 bg-black/[0.04] dark:bg-white/[0.04] rounded animate-pulse" />
+    <div className="glass-panel-solid rounded-2xl p-5 animate-pulse">
+      <div className="flex items-start gap-4">
+        <div className="w-10 h-10 rounded-xl bg-black/[0.06] dark:bg-white/[0.06]" />
+        <div className="flex-1 space-y-2.5 pt-1">
+          <div className="h-4 w-3/4 bg-black/[0.06] dark:bg-white/[0.06] rounded-lg" />
+          <div className="h-3 w-1/3 bg-black/[0.04] dark:bg-white/[0.04] rounded-lg" />
+        </div>
+        <div className="h-6 w-20 bg-black/[0.06] dark:bg-white/[0.06] rounded-full" />
       </div>
-      <div className="h-6 w-20 bg-black/[0.06] dark:bg-white/[0.06] rounded-full animate-pulse" />
-      <div className="h-4 w-16 bg-black/[0.04] dark:bg-white/[0.04] rounded animate-pulse" />
-    </div>
-  );
-}
-
-function LoadingSkeleton() {
-  return (
-    <div>
-      {Array.from({ length: 6 }).map((_, i) => (
-        <SkeletonRow key={i} />
-      ))}
     </div>
   );
 }
@@ -105,25 +108,197 @@ function LoadingSkeleton() {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-24 px-6">
-      <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-black/[0.04] dark:bg-white/[0.04] border border-black/10 dark:border-white/[0.06] mb-6">
-        <Inbox size={28} strokeWidth={1.5} className="text-neutral-500" />
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="flex flex-col items-center justify-center py-24 px-6"
+    >
+      <div className="flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-orange-500/10 to-orange-600/5 border border-orange-500/15 mb-6">
+        <Inbox size={32} strokeWidth={1.5} className="text-orange-500/60" />
       </div>
-      <h3 className="text-lg font-semibold text-neutral-900 dark:text-white mb-2">
+      <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-2">
         No research runs yet
       </h3>
-      <p className="text-sm text-neutral-400 text-center max-w-sm mb-6">
-        Start a new research query to see your runs appear here. Each run will
-        be tracked with its status, iterations, and results.
+      <p className="text-sm text-neutral-500 text-center max-w-sm mb-8 leading-relaxed">
+        Start your first research query to see your runs appear here.
+        Each run will be tracked with its status, iterations, and results.
       </p>
-      <Link
-        href="/"
-        className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-orange-600 hover:bg-orange-500 rounded-xl transition-colors"
-      >
+      <Link href="/" className="btn-primary">
+        <Sparkles size={16} />
         Start Research
-        <ArrowRight size={16} strokeWidth={2} />
       </Link>
-    </div>
+    </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Delete confirmation dialog                                         */
+/* ------------------------------------------------------------------ */
+
+function DeleteDialog({
+  run,
+  onConfirm,
+  onCancel,
+  isDeleting,
+}: {
+  run: RunStatus;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isDeleting: boolean;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        transition={{ type: 'spring', bounce: 0.2 }}
+        className="glass-panel-solid rounded-2xl p-6 w-full max-w-md shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20">
+            <Trash2 size={18} className="text-red-500" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-neutral-900 dark:text-white">
+              Delete Run
+            </h3>
+            <p className="text-xs text-neutral-500">This action cannot be undone</p>
+          </div>
+        </div>
+
+        <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-6 leading-relaxed">
+          Are you sure you want to delete{' '}
+          <span className="font-medium text-neutral-900 dark:text-white">
+            &ldquo;{truncate(run.query, 60)}&rdquo;
+          </span>
+          ? All associated data will be permanently removed.
+        </p>
+
+        <div className="flex items-center justify-end gap-3">
+          <button onClick={onCancel} className="btn-ghost" disabled={isDeleting}>
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="btn-danger" disabled={isDeleting}>
+            {isDeleting ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Trash2 size={14} />
+            )}
+            {isDeleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Run card                                                           */
+/* ------------------------------------------------------------------ */
+
+function RunCard({
+  run,
+  index,
+  onDelete,
+}: {
+  run: RunStatus;
+  index: number;
+  onDelete: (run: RunStatus) => void;
+}) {
+  const config = statusConfig[run.status];
+  const StatusIcon = config.icon;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
+      transition={{ duration: 0.35, delay: index * 0.04 }}
+      layout
+    >
+      <Link
+        href={`/runs/${run.run_id}`}
+        className="group relative flex items-start gap-4 rounded-2xl glass-panel-solid p-4 hover:shadow-lg hover:shadow-black/[0.04] dark:hover:shadow-black/[0.2] hover:-translate-y-[1px] transition-all duration-300 sm:p-5"
+      >
+        {/* Status icon */}
+        <div
+          className={`flex items-center justify-center w-10 h-10 rounded-xl shrink-0 ${run.status === 'completed'
+              ? 'bg-emerald-500/10 border border-emerald-500/20'
+              : run.status === 'running'
+                ? 'bg-blue-500/10 border border-blue-500/20'
+                : run.status === 'failed'
+                  ? 'bg-red-500/10 border border-red-500/20'
+                  : 'bg-neutral-500/10 border border-neutral-500/20'
+            }`}
+        >
+          <StatusIcon
+            size={16}
+            strokeWidth={2}
+            className={`${run.status === 'completed'
+                ? 'text-emerald-500'
+                : run.status === 'running'
+                  ? 'text-blue-500 animate-spin'
+                  : run.status === 'failed'
+                    ? 'text-red-500'
+                    : 'text-neutral-400'
+              }`}
+          />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-neutral-900 dark:text-white truncate group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
+            {truncate(run.query, 75)}
+          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+            <span className={config.chipClass}>
+              <span className={`w-1.5 h-1.5 rounded-full ${config.dotClass}`} />
+              {config.label}
+            </span>
+            <span className="text-[11px] text-neutral-400 dark:text-neutral-600 font-mono">
+              {run.run_id.slice(0, 8)}
+            </span>
+            {run.iteration > 0 && (
+              <span className="text-[11px] text-neutral-500">
+                {run.iteration}{run.max_iterations > 0 ? `/${run.max_iterations}` : ''} iter
+              </span>
+            )}
+            <span className="text-[11px] text-neutral-400 dark:text-neutral-600">
+              {formatDate(run.created_at)}
+            </span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete(run);
+            }}
+            className="opacity-0 group-hover:opacity-100 flex items-center justify-center w-8 h-8 rounded-lg text-neutral-400 hover:text-red-500 hover:bg-red-500/[0.08] transition-all duration-200"
+            title="Delete run"
+          >
+            <Trash2 size={14} />
+          </button>
+          <ArrowRight
+            size={16}
+            strokeWidth={2}
+            className="text-neutral-300 dark:text-neutral-700 group-hover:text-orange-500 dark:group-hover:text-orange-400 group-hover:translate-x-0.5 transition-all duration-200"
+          />
+        </div>
+      </Link>
+    </motion.div>
   );
 }
 
@@ -136,8 +311,10 @@ export default function HistoryPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<RunStatus | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  async function fetchRuns() {
+  const fetchRuns = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -152,51 +329,92 @@ export default function HistoryPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     fetchRuns();
-  }, []);
+  }, [fetchRuns]);
+
+  const handleDelete = useCallback(
+    async (run: RunStatus) => {
+      setIsDeleting(true);
+      try {
+        await deleteRun(run.run_id);
+        setRuns((prev) => prev.filter((r) => r.run_id !== run.run_id));
+        setDeleteTarget(null);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : 'Failed to delete run.',
+        );
+      } finally {
+        setIsDeleting(false);
+      }
+    },
+    [],
+  );
 
   const filteredRuns = searchFilter
     ? runs.filter((r) =>
-        r.query.toLowerCase().includes(searchFilter.toLowerCase()),
-      )
+      r.query.toLowerCase().includes(searchFilter.toLowerCase()),
+    )
     : runs;
 
   return (
-    <div className="flex min-h-screen flex-col px-3 pb-6 pt-14 sm:px-8 sm:pt-8">
+    <div className="flex min-h-screen flex-col px-3 pb-8 pt-16 sm:px-8 sm:pt-8">
       {/* Header */}
-      <div className="shrink-0 pb-6">
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="shrink-0 pb-6"
+      >
         <div className="flex items-center gap-3 mb-1">
-          <Clock size={20} strokeWidth={1.75} className="text-neutral-500 dark:text-neutral-400" />
-          <h1 className="text-xl font-semibold text-neutral-900 dark:text-white">Research History</h1>
+          <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-neutral-100 to-neutral-50 border border-neutral-200/60 dark:from-white/[0.06] dark:to-white/[0.02] dark:border-white/[0.08]">
+            <Clock size={17} strokeWidth={1.75} className="text-neutral-600 dark:text-neutral-400" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-neutral-900 dark:text-white">Research History</h1>
+            <p className="text-xs text-neutral-500 dark:text-neutral-600">
+              Browse and revisit past research runs
+            </p>
+          </div>
         </div>
-        <p className="text-sm text-neutral-600 dark:text-neutral-500 ml-8">
-          Browse and revisit past research runs.
-        </p>
-      </div>
+      </motion.div>
 
       {/* Toolbar */}
-      <div className="shrink-0 flex flex-wrap items-center gap-3 pb-4">
+      <motion.div
+        initial={{ opacity: 0, y: -5 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="shrink-0 flex flex-wrap items-center gap-3 pb-5"
+      >
         <div className="relative flex-1 max-w-md">
           <Search
-            size={16}
+            size={15}
             strokeWidth={2}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400"
           />
           <input
             type="text"
-            placeholder="Filter by query..."
+            placeholder="Filter by query…"
             value={searchFilter}
             onChange={(e) => setSearchFilter(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-sm text-neutral-900 dark:text-white placeholder-neutral-500 bg-white dark:bg-[#111] border border-black/10 dark:border-white/[0.06] rounded-xl focus:outline-none focus:border-orange-500/40 focus:ring-1 focus:ring-orange-500/20 transition-colors"
+            className="glass-input pl-9 pr-4"
           />
+          {searchFilter && (
+            <button
+              onClick={() => setSearchFilter('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
+
         <button
           onClick={fetchRuns}
           disabled={isLoading}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white bg-white dark:bg-[#111] border border-black/10 dark:border-white/[0.06] rounded-xl hover:border-black/20 dark:hover:border-white/[0.1] transition-colors disabled:opacity-50"
+          className="btn-secondary"
           title="Refresh"
         >
           <RefreshCw
@@ -206,111 +424,77 @@ export default function HistoryPage() {
           />
           Refresh
         </button>
-      </div>
+      </motion.div>
 
       {/* Error banner */}
-      {error && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          <AlertCircle size={16} strokeWidth={2} className="shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mb-5 flex items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-sm text-red-600 dark:text-red-400"
+          >
+            <AlertCircle size={16} strokeWidth={2} className="shrink-0" />
+            <span className="flex-1">{error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-600 dark:hover:text-red-300"
+            >
+              <X size={14} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Runs list */}
+      {/* Content */}
       <div className="flex-1">
-        <div className="overflow-x-auto rounded-2xl border border-black/10 bg-white dark:border-white/[0.06] dark:bg-[#111]">
-          {/* Table header - hidden on mobile */}
-          <div className="hidden items-center gap-4 px-5 py-3 border-b border-black/10 dark:border-white/[0.06] text-[11px] font-medium text-neutral-500 uppercase tracking-wider sm:flex">
-            <div className="flex-1 min-w-0">Query</div>
-            <div className="w-24 text-center">Status</div>
-            <div className="w-20 text-center">Iterations</div>
-            <div className="w-24 text-right">Created</div>
-            <div className="w-8" />
+        {isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
-
-          {/* Content */}
-          {isLoading ? (
-            <LoadingSkeleton />
-          ) : filteredRuns.length === 0 && runs.length === 0 ? (
-            <EmptyState />
-          ) : filteredRuns.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 px-6">
-              <Search
-                size={24}
-                strokeWidth={1.5}
-                className="text-neutral-400 dark:text-neutral-600 mb-3"
-              />
-              <p className="text-sm text-neutral-500">
-                No runs match &ldquo;{searchFilter}&rdquo;
-              </p>
-            </div>
-          ) : (
-            filteredRuns.map((run) => {
-              const config = statusConfig[run.status];
-              return (
-                <Link
+        ) : filteredRuns.length === 0 && runs.length === 0 ? (
+          <EmptyState />
+        ) : filteredRuns.length === 0 ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex flex-col items-center justify-center py-20"
+          >
+            <Search size={28} strokeWidth={1.5} className="text-neutral-300 dark:text-neutral-700 mb-3" />
+            <p className="text-sm text-neutral-500">
+              No runs match &ldquo;{searchFilter}&rdquo;
+            </p>
+          </motion.div>
+        ) : (
+          <div className="space-y-2.5">
+            <AnimatePresence mode="popLayout">
+              {filteredRuns.map((run, index) => (
+                <RunCard
                   key={run.run_id}
-                  href={`/runs/${run.run_id}`}
-                  className="group flex flex-col gap-2 px-4 py-4 border-b border-black/10 dark:border-white/[0.06] last:border-b-0 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors sm:flex-row sm:items-center sm:gap-4 sm:px-5"
-                >
-                  {/* Query */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-neutral-900 dark:text-white truncate group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors">
-                      {truncate(run.query, 80)}
-                    </p>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-600 mt-0.5 font-mono">
-                      {run.run_id.slice(0, 8)}
-                    </p>
-                  </div>
-
-                  {/* Mobile meta row */}
-                  <div className="flex items-center gap-3 sm:contents">
-                    {/* Status badge */}
-                    <div className="sm:w-24 sm:flex sm:justify-center">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-full ${config.badgeClass}`}
-                      >
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full ${config.dotClass}`}
-                        />
-                        {config.label}
-                      </span>
-                    </div>
-
-                    {/* Iterations */}
-                    <div className="sm:w-20 sm:text-center">
-                      <span className="text-sm text-neutral-600 dark:text-neutral-400">
-                        {run.iteration}
-                        {run.max_iterations > 0 && (
-                          <span className="text-neutral-400 dark:text-neutral-600">
-                            /{run.max_iterations}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-
-                    {/* Date */}
-                    <div className="ml-auto sm:w-24 sm:text-right sm:ml-0">
-                      <span className="text-xs text-neutral-500">
-                        {formatDate(run.created_at)}
-                      </span>
-                    </div>
-
-                    {/* Arrow */}
-                    <div className="hidden sm:flex w-8 justify-center">
-                      <ArrowRight
-                        size={14}
-                        strokeWidth={2}
-                        className="text-neutral-400 dark:text-neutral-700 group-hover:text-neutral-600 dark:group-hover:text-neutral-400 transition-colors"
-                      />
-                    </div>
-                  </div>
-                </Link>
-              );
-            })
-          )}
-        </div>
+                  run={run}
+                  index={index}
+                  onDelete={setDeleteTarget}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <DeleteDialog
+            run={deleteTarget}
+            onConfirm={() => handleDelete(deleteTarget)}
+            onCancel={() => setDeleteTarget(null)}
+            isDeleting={isDeleting}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

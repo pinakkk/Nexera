@@ -11,13 +11,10 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-# Neon/Postgres URL required for DB-backed API tests.
+# SQL DB URL required for DB-backed API tests.
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 if TEST_DATABASE_URL:
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
-    os.environ["DATABASE_URL_SYNC"] = (
-        TEST_DATABASE_URL.replace("+asyncpg", "").replace("+psycopg", "")
-    )
 
 from app.db.database import Base, get_db_session  # noqa: E402
 import app.db.models  # noqa: E402,F401  -- ensure models are registered on Base
@@ -74,7 +71,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Provide a database session for a single test."""
     if TestingSessionLocal is None:
         pytest.skip(
-            "Skipping API DB tests: set TEST_DATABASE_URL to a Neon/Postgres URL"
+            "Skipping API DB tests: set TEST_DATABASE_URL to a valid SQL DB URL"
         )
 
     session = TestingSessionLocal()

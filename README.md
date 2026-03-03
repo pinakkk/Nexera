@@ -4,11 +4,11 @@ An AI-powered research agent that autonomously searches the web, synthesizes inf
 
 ## Architecture
 
-The project is organized as a monorepo with three packages. The **FastAPI backend** (`apps/api`) exposes a REST API that orchestrates the research pipeline: it accepts a research query, fans out web searches via the Tavily API, fetches and parses page content, optionally reranks results with Cohere, and runs multi-step LLM reasoning through Groq-hosted Llama models. All research sessions and their results are persisted in Neon PostgreSQL.
+The project is organized as a monorepo with three packages. The **FastAPI backend** (`apps/api`) exposes a REST API that orchestrates the research pipeline: it accepts a research query, fans out web searches via the Tavily API, fetches and parses page content, optionally reranks results with Cohere, and runs multi-step LLM reasoning through Groq-hosted Llama models.
 
-The **Next.js frontend** (`apps/web`) provides a clean interface for submitting research queries, monitoring agent progress in real time, and browsing completed reports. Prisma is configured in `apps/web/prisma` for Neon database integration and health checks.
+The **Next.js frontend** (`apps/web`) provides a clean interface for submitting research queries, monitoring agent progress in real time, and browsing completed reports. Prisma is configured in `apps/web/prisma` for MongoDB Atlas integration and health checks.
 
-Infrastructure is containerized with Docker Compose for API, web, and Redis. Database is externalized to Neon.
+Local development runs API + web directly, while database storage is externalized to MongoDB Atlas.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ The frontend will be available at `http://localhost:3000` and the API at `http:/
 
 ## Local Dev Without Docker (Recommended)
 
-Use this flow to run everything with `npm` + Python directly against Neon:
+Use this flow to run everything with `npm` + Python directly against MongoDB Atlas:
 
 ```bash
 # 1) API
@@ -37,7 +37,7 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-make check-neon
+make check-mongo
 python -m uvicorn app.main:app --reload --port 8000
 
 # 2) In another terminal, Web
@@ -60,8 +60,8 @@ Use Python 3.11 for the API environment to avoid native-wheel build issues on Py
 | `GROQ_SMART_MODEL` | Capable model for reasoning tasks | No | `llama-3.3-70b-versatile` |
 | `TAVILY_API_KEY` | Tavily API key for web search | Yes | -- |
 | `SEARCH_MAX_RESULTS` | Max search results per query | No | `5` |
-| `DATABASE_URL` | Neon/PostgreSQL connection string (API + Prisma) | Yes | -- |
-| `DATABASE_URL_SYNC` | Sync Neon/PostgreSQL URL (API migrations) | Yes | -- |
+| `DATABASE_URL` | MongoDB Atlas connection string (Prisma datasource) | Yes | -- |
+| `ALLOW_START_WITHOUT_DB` | Skip startup MongoDB readiness check (not recommended) | No | `false` |
 | `REDIS_URL` | Redis connection string | No | -- |
 | `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | No | `http://localhost:3000,http://localhost:3001` |
 | `RATE_LIMIT_PER_MINUTE` | General API rate limit | No | `30` |
@@ -74,26 +74,26 @@ Use Python 3.11 for the API environment to avoid native-wheel build issues on Py
 ## Development Commands
 
 ```bash
-make dev          # Start all services via Docker Compose
+make dev          # Start API + Web concurrently (local)
 make dev-api      # Start the FastAPI backend locally
 make dev-web      # Start the Next.js frontend locally
 make dev-web-local # Start frontend pointed at http://localhost:8000
-make check-neon   # Validate Neon DNS/TCP/SQL connectivity
+make check-mongo  # Validate MongoDB Atlas connectivity via Prisma
 make lint         # Lint both backend and frontend
 make test         # Run all tests
-make migrate      # Run Alembic database migrations
-make migration msg="add users table"  # Create a new migration
-make clean        # Stop all containers and remove volumes
+make migrate      # Push Prisma schema to MongoDB Atlas
+make migration    # Generate Prisma client
+make clean        # Remove build artifacts and caches
 make help         # Show all available targets
 ```
 
-## Neon DNS Troubleshooting
+## MongoDB Atlas Connectivity Troubleshooting
 
-If API startup fails with host resolution errors for `*.neon.tech`:
+If DB health checks fail due DNS/network:
 
 ```bash
 # 1) Validate DNS + DB connectivity from current env
-make check-neon
+make check-mongo
 
 # 2) If DNS resolution fails on macOS, set public resolvers
 networksetup -setdnsservers Wi-Fi 1.1.1.1 8.8.8.8
@@ -102,11 +102,11 @@ networksetup -setdnsservers Wi-Fi 1.1.1.1 8.8.8.8
 sudo dscacheutil -flushcache
 sudo killall -HUP mDNSResponder
 
-# 4) Re-test Neon host
-nslookup ep-cold-shape-a1slry0w-pooler.ap-southeast-1.aws.neon.tech
+# 4) Re-test Atlas SRV host
+nslookup <your-atlas-cluster-host>
 ```
 
-If the host still fails to resolve, regenerate the pooled connection string from Neon dashboard and update `apps/api/.env` and `apps/web/.env.local`.
+If host resolution still fails, regenerate your MongoDB Atlas connection string and update `apps/api/.env` and `apps/web/.env.local`.
 
 ## API Endpoints
 
@@ -127,8 +127,8 @@ If the host still fails to resolve, regenerate the pooled connection string from
 - **LLM:** Groq API (Llama 3.1 / 3.3)
 - **Search:** Tavily Search API
 - **Reranking:** Cohere Rerank (optional)
-- **Database:** Neon PostgreSQL
+- **Database:** MongoDB Atlas (Prisma)
 - **Cache/Rate Limiting:** Redis 7
-- **Infrastructure:** Docker, Docker Compose
+- **Infrastructure:** Local process workflow, MongoDB Atlas
 - **Linting:** Ruff (Python), ESLint (TypeScript)
 - **Testing:** pytest (Python), Jest (TypeScript)

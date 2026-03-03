@@ -17,7 +17,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: 'Research Agent',
+  title: 'Nexara – AI Research Agent',
   description: 'Autonomous deep research with citations. Ask any research question and get a comprehensive, well-sourced report.',
 };
 
@@ -32,7 +32,7 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${manrope.variable} ${spaceGrotesk.variable}`}
     >
-      <body className="bg-neutral-50 text-neutral-900 dark:bg-[#0a0a0a] dark:text-white">
+      <body>
         <ThemeProvider>
           <AppShell>{children}</AppShell>
         </ThemeProvider>

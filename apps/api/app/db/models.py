@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from sqlalchemy import (
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -75,6 +77,12 @@ class Run(Base):
     sources: Mapped[list["Source"]] = relationship(
         back_populates="run", cascade="all, delete-orphan", lazy="selectin"
     )
+    claims: Mapped[list["Claim"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", lazy="noload"
+    )
+    kg_edges: Mapped[list["KGEdge"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", lazy="noload"
+    )
 
     def __repr__(self) -> str:
         return f"<Run id={self.id!s} status={self.status!r}>"
@@ -120,6 +128,9 @@ class Document(Base):
     url: Mapped[str] = mapped_column(String(2048), unique=True, nullable=False)
     title: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    source_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="web"
+    )  # web | academic | user_upload
     published_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -240,3 +251,171 @@ class Source(Base):
 
     def __repr__(self) -> str:
         return f"<Source id={self.id!s} status={self.status!r}>"
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Graph – Nodes
+# ---------------------------------------------------------------------------
+class KGNode(Base):
+    __tablename__ = "kg_nodes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=_new_uuid
+    )
+    type: Mapped[str] = mapped_column(
+        String(50), nullable=False, index=True
+    )  # Person | Org | Location | Concept | Document | Claim
+    canonical_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    aliases: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String), nullable=True
+    )
+    metadata_json: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSON, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    # Relationships
+    edges_from: Mapped[list["KGEdge"]] = relationship(
+        "KGEdge",
+        foreign_keys="KGEdge.from_node_id",
+        back_populates="from_node",
+        cascade="all, delete-orphan",
+        lazy="noload",
+    )
+    edges_to: Mapped[list["KGEdge"]] = relationship(
+        "KGEdge",
+        foreign_keys="KGEdge.to_node_id",
+        back_populates="to_node",
+        cascade="all, delete-orphan",
+        lazy="noload",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("type", "canonical_name", name="uq_kg_node_type_name"),
+        Index("ix_kg_nodes_canonical_name", "canonical_name"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<KGNode id={self.id!s} type={self.type!r} name={self.canonical_name!r}>"
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Graph – Edges
+# ---------------------------------------------------------------------------
+class KGEdge(Base):
+    __tablename__ = "kg_edges"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=_new_uuid
+    )
+    from_node_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("kg_nodes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    to_node_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("kg_nodes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    relation_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # MENTIONS | SUPPORTS | CONTRADICTS | RELATED_TO | CITES | ABOUT
+    confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.5
+    )
+    evidence_chunk_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("chunks.id", ondelete="SET NULL"), nullable=True
+    )
+    run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    # Relationships
+    from_node: Mapped["KGNode"] = relationship(
+        "KGNode", foreign_keys=[from_node_id], back_populates="edges_from"
+    )
+    to_node: Mapped["KGNode"] = relationship(
+        "KGNode", foreign_keys=[to_node_id], back_populates="edges_to"
+    )
+    run: Mapped[Optional["Run"]] = relationship(back_populates="kg_edges")
+
+    def __repr__(self) -> str:
+        return f"<KGEdge id={self.id!s} {self.relation_type!r}>"
+
+
+# ---------------------------------------------------------------------------
+# Claims – structured claims extracted from reports
+# ---------------------------------------------------------------------------
+class Claim(Base):
+    __tablename__ = "claims"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=_new_uuid
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    section: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    citation_chunk_ids: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String), nullable=True
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+
+    # Verification results
+    verification_status: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )  # VERIFIED | WEAK | UNSUPPORTED
+    verification_snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    evidence_needed: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    # Relationships
+    run: Mapped["Run"] = relationship(back_populates="claims")
+
+    def __repr__(self) -> str:
+        return f"<Claim id={self.id!s} status={self.verification_status!r}>"
+
+
+# ---------------------------------------------------------------------------
+# Verification Results – aggregated per run
+# ---------------------------------------------------------------------------
+class VerificationResult(Base):
+    __tablename__ = "verification_results"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=_new_uuid
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    iteration: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Metrics
+    citation_coverage: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    groundedness_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    coverage_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    contradiction_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source_diversity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    # Critic evaluation
+    structure_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    completeness_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    overall_passed: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    feedback_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<VerificationResult id={self.id!s} run={self.run_id!s} passed={self.overall_passed}>"

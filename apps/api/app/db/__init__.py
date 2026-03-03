@@ -1,5 +1,17 @@
-"""Database package – re-exports commonly used symbols."""
+"""Database package – MongoDB storage exports."""
 
-from app.db.database import Base, get_db, get_db_session, async_session_factory
+from app.db.mongo import (
+    MongoStore,
+    MongoUnavailableError,
+    describe_mongo_error,
+    ensure_mongo_ready,
+    get_mongo_store,
+)
 
-__all__ = ["Base", "get_db", "get_db_session", "async_session_factory"]
+__all__ = [
+    "MongoStore",
+    "MongoUnavailableError",
+    "describe_mongo_error",
+    "get_mongo_store",
+    "ensure_mongo_ready",
+]

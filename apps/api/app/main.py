@@ -5,6 +5,8 @@ Creates the app, registers middleware, exception handlers, and routers.
 
 from __future__ import annotations
 
+import logging
+import re
 import uuid
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
@@ -17,13 +19,14 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app.config import get_settings
-from app.db.database import create_all_tables
+from app.db.mongo import ensure_mongo_ready
 from app.services.integrations import log_api_integration_status
 
 # ---------------------------------------------------------------------------
 # Rate limiter (uses client IP by default)
 # ---------------------------------------------------------------------------
 limiter = Limiter(key_func=get_remote_address)
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Lifespan: startup / shutdown hooks
@@ -36,12 +39,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     * On startup  -- ensure all DB tables exist (dev convenience; use Alembic in prod).
     * On shutdown -- nothing special for now.
     """
-    # Import models so that Base.metadata knows about every table.
-    import app.db.models  # noqa: F401
-
-    await create_all_tables()
     settings = get_settings()
-    if settings.INTEGRATION_CHECK_ON_STARTUP:
+    if settings.ALLOW_START_WITHOUT_DB:
+        logger.warning(
+            "ALLOW_START_WITHOUT_DB=true: skipping database readiness check and "
+            "starting in degraded mode. DB-backed routes may fail."
+        )
+    else:
+        await ensure_mongo_ready()
+
+    if settings.INTEGRATION_CHECK_ON_STARTUP and not settings.ALLOW_START_WITHOUT_DB:
         await log_api_integration_status(settings)
     yield
 
@@ -86,7 +93,27 @@ def create_app() -> FastAPI:
     @application.middleware("http")
     async def add_request_id(request: Request, call_next):  # type: ignore[no-untyped-def]
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("Unhandled request error path=%s", request.url.path)
+            response = JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"detail": "Internal server error."},
+            )
+
+            # Ensure browser clients still receive CORS headers even when
+            # an exception bubbles before CORS middleware can attach them.
+            origin = request.headers.get("origin")
+            if origin:
+                allow_local = bool(
+                    re.match(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$", origin)
+                )
+                if allow_local or origin in settings.cors_origin_list:
+                    response.headers["Access-Control-Allow-Origin"] = origin
+                    response.headers["Access-Control-Allow-Credentials"] = "true"
+                    response.headers["Vary"] = "Origin"
+
         response.headers["X-Request-ID"] = request_id
         return response
 
@@ -100,6 +127,16 @@ def create_app() -> FastAPI:
 
     @application.exception_handler(Exception)
     async def _generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, RuntimeError) and "ALLOW_START_WITHOUT_DB" in str(exc):
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "detail": (
+                        "Database-backed API routes are currently disabled "
+                        "because ALLOW_START_WITHOUT_DB=true."
+                    )
+                },
+            )
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "Internal server error."},

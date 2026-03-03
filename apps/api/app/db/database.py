@@ -10,13 +10,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy import text
 
-from sqlalchemy.ext.asyncio import (
-    AsyncConnection,
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
@@ -28,9 +22,16 @@ class Base(DeclarativeBase):
     """Declarative base class for all ORM models."""
 
 
-def _build_engine() -> AsyncEngine:
-    """Build the async engine for Neon/PostgreSQL."""
+def _build_engine() -> AsyncEngine | None:
+    """Build the async engine for SQL backends.
+
+    When ``ALLOW_START_WITHOUT_DB=true`` we intentionally skip engine
+    initialization so API startup is decoupled from external DB connectivity.
+    """
     settings = get_settings()
+    if settings.ALLOW_START_WITHOUT_DB:
+        logger.warning("Skipping SQL engine setup because ALLOW_START_WITHOUT_DB=true")
+        return None
     url = settings.DATABASE_URL
     return create_async_engine(
         url,
@@ -41,12 +42,16 @@ def _build_engine() -> AsyncEngine:
     )
 
 
-engine: AsyncEngine = _build_engine()
+engine: AsyncEngine | None = _build_engine()
 
-async_session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
+async_session_factory: async_sessionmaker[AsyncSession] | None = (
+    async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    if engine is not None
+    else None
 )
 
 
@@ -67,6 +72,9 @@ def _db_url_without_credentials(url: str) -> str:
 
 async def ensure_database_ready() -> None:
     """Retry DB connectivity before running startup DDL."""
+    if engine is None:
+        return
+
     settings = get_settings()
     retries = max(1, int(settings.DB_STARTUP_RETRIES))
     delay = max(0.0, float(settings.DB_STARTUP_RETRY_DELAY_SECONDS))
@@ -94,11 +102,11 @@ async def ensure_database_ready() -> None:
 
     safe_url = _db_url_without_credentials(settings.DATABASE_URL)
     raise RuntimeError(
-        "Unable to connect to Neon/Postgres after startup retries.\n"
+        "Unable to connect to configured SQL database after startup retries.\n"
         f"- Host: {db_host}\n"
         f"- URL (credentials hidden): {safe_url}\n"
-        "- Check that the Neon host in DATABASE_URL is correct and active.\n"
-        "- On macOS, test DNS with: nslookup <neon-host>\n"
+        "- Check that DATABASE_URL is correct and reachable.\n"
+        "- On macOS, test DNS with: nslookup <db-host>\n"
         "- If DNS fails, set DNS servers to 1.1.1.1 and 8.8.8.8, then flush cache:\n"
         "  sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder\n"
         "- If using VPN/proxy, disable it temporarily and retry.\n"
@@ -112,6 +120,9 @@ async def create_all_tables() -> None:
     This is intended for development and tests.  In production, prefer
     running Alembic migrations.
     """
+    if engine is None:
+        return
+
     await ensure_database_ready()
     async with engine.begin() as conn:  # type: AsyncConnection
         await conn.run_sync(Base.metadata.create_all)
@@ -119,8 +130,19 @@ async def create_all_tables() -> None:
 
 async def drop_all_tables() -> None:
     """Drop every table registered on ``Base.metadata`` (tests only)."""
+    if engine is None:
+        return
     async with engine.begin() as conn:  # type: AsyncConnection
         await conn.run_sync(Base.metadata.drop_all)
+
+
+def _get_session_factory() -> async_sessionmaker[AsyncSession]:
+    if async_session_factory is None:
+        raise RuntimeError(
+            "SQLAlchemy session factory is not available because "
+            "ALLOW_START_WITHOUT_DB=true."
+        )
+    return async_session_factory
 
 
 @contextlib.asynccontextmanager
@@ -132,7 +154,7 @@ async def get_db() -> AsyncIterator[AsyncSession]:
         async with get_db() as session:
             result = await session.execute(select(Run))
     """
-    session = async_session_factory()
+    session = _get_session_factory()()
     try:
         yield session
         await session.commit()
@@ -149,7 +171,7 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
     Unlike :func:`get_db`, this is a plain async generator (not a context
     manager), which is the form that FastAPI's dependency injection expects.
     """
-    session = async_session_factory()
+    session = _get_session_factory()()
     try:
         yield session
         await session.commit()

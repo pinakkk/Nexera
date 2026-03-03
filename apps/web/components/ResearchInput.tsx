@@ -1,83 +1,52 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Check,
-  ChevronDown,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  ArrowUp,
   Paperclip,
-  Rocket,
-  Send,
-  Sparkles,
-  UserRound,
+  Link2,
   X,
   Zap,
+  Brain,
+  Layers,
+  Loader2,
+  Plus,
+  Globe,
+  FileText,
+  Mic,
+  Square,
 } from 'lucide-react';
-import { RunConstraints } from '@/lib/types';
-import { listAvailableModels } from '@/lib/api';
+import type { RunConstraints } from '@/lib/types';
+import clsx from 'clsx';
 
-interface ModelOption {
-  id: string;
-  label: string;
-  description: string;
-  isDefault?: boolean;
-}
+/* ------------------------------------------------------------------ */
+/*  Depth presets                                                      */
+/* ------------------------------------------------------------------ */
 
-const DEFAULT_MODELS: ModelOption[] = [
-  {
-    id: 'auto',
-    label: 'Auto',
-    description: 'Balanced for speed and depth',
-  },
-  {
-    id: 'llama-3.1-8b-instant',
-    label: 'llama-3.1-8b-instant',
-    description: 'Fast default model',
-    isDefault: true,
-  },
-  {
-    id: 'llama-3.3-70b-versatile',
-    label: 'llama-3.3-70b-versatile',
-    description: 'Smart default model',
-    isDefault: true,
-  },
+const DEPTH_PRESETS = [
+  { value: 'quick' as const, label: 'Quick', icon: Zap, color: 'text-amber-500' },
+  { value: 'standard' as const, label: 'Standard', icon: Brain, color: 'text-sky-500' },
+  { value: 'deep' as const, label: 'Deep', icon: Layers, color: 'text-purple-500' },
 ];
 
-const MODE_CHIPS = [
-  {
-    id: 'deepsearch',
-    label: 'DeepSearch',
-    icon: Rocket,
-    apply: {
-      depth: 'deep' as const,
-      prepend: '',
-    },
-  },
-  {
-    id: 'imagine',
-    label: 'Imagine',
-    icon: Sparkles,
-    apply: {
-      depth: 'standard' as const,
-      prepend: 'Think creatively and include alternative scenarios: ',
-    },
-  },
-  {
-    id: 'personas',
-    label: 'Personas',
-    icon: UserRound,
-    apply: {
-      depth: 'standard' as const,
-      prepend: 'Answer from 3 expert perspectives with citations: ',
-    },
-  },
+/* ------------------------------------------------------------------ */
+/*  Model presets (simplified — only 2 choices)                        */
+/* ------------------------------------------------------------------ */
+
+const MODEL_PRESETS = [
+  { id: 'llama-3.3-70b-versatile', label: 'Llama 70B', icon: Brain, color: 'text-purple-500' },
+  { id: 'llama-3.1-8b-instant', label: 'Llama 8B', icon: Zap, color: 'text-amber-500' },
 ];
 
-function parseUrls(raw: string): string[] {
-  return raw
-    .split(/[\n,]+/g)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
+/* ------------------------------------------------------------------ */
+/*  Props                                                              */
+/* ------------------------------------------------------------------ */
 
 interface ResearchInputProps {
   onSubmit: (
@@ -88,303 +57,403 @@ interface ResearchInputProps {
   isLoading?: boolean;
 }
 
-export function ResearchInput({ onSubmit, isLoading = false }: ResearchInputProps) {
-  const [query, setQuery] = useState('');
-  const [modelOptions, setModelOptions] = useState<ModelOption[]>(DEFAULT_MODELS);
-  const [selectedModelId, setSelectedModelId] = useState('auto');
-  const [depth, setDepth] = useState<'quick' | 'standard' | 'deep'>('standard');
-  const [files, setFiles] = useState<File[]>([]);
-  const [urlInput, setUrlInput] = useState('');
-  const [showAttachMenu, setShowAttachMenu] = useState(false);
-  const [showModelMenu, setShowModelMenu] = useState(false);
+/* ------------------------------------------------------------------ */
+/*  Component                                                          */
+/* ------------------------------------------------------------------ */
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+export function ResearchInput({
+  onSubmit,
+  isLoading = false,
+}: ResearchInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    function handleOutsideClick(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) {
-        setShowAttachMenu(false);
-        setShowModelMenu(false);
-      }
-    }
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-    };
+  const [query, setQuery] = useState('');
+  const [depth, setDepth] = useState<'quick' | 'standard' | 'deep'>('standard');
+  const [selectedModel, setSelectedModel] = useState(MODEL_PRESETS[0].id);
+
+  const [files, setFiles] = useState<File[]>([]);
+  const [urls, setUrls] = useState<string[]>([]);
+  const [urlInput, setUrlInput] = useState('');
+  const [showUrlInput, setShowUrlInput] = useState(false);
+
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  // Auto-resize textarea
+  const resizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      const remoteModels = await listAvailableModels();
-      if (remoteModels.length === 0) return;
+    resizeTextarea();
+  }, [query, resizeTextarea]);
 
-      const next: ModelOption[] = [
-        {
-          id: 'auto',
-          label: 'Auto',
-          description: 'Balanced for speed and depth',
-        },
-        ...remoteModels.map((model) => ({
-          id: model.id,
-          label: model.id,
-          description: model.is_default
-            ? `Default (${model.owned_by ?? 'Groq'})`
-            : `Provided by ${model.owned_by ?? 'Groq'}`,
-          isDefault: model.is_default,
-        })),
-      ];
-      setModelOptions(next);
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!modelOptions.some((model) => model.id === selectedModelId)) {
-      setSelectedModelId('auto');
-    }
-  }, [modelOptions, selectedModelId]);
-
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 240)}px`;
-  }, [query]);
-
-  const selectedModel = useMemo(
-    () => modelOptions.find((model) => model.id === selectedModelId) ?? modelOptions[0],
-    [modelOptions, selectedModelId],
-  );
-  const parsedUrls = useMemo(() => parseUrls(urlInput), [urlInput]);
-
-  function handleSubmit() {
-    if (!query.trim() || isLoading) return;
+  // Submit handler
+  const handleSubmit = useCallback(() => {
+    const trimmed = query.trim();
+    if (!trimmed || isLoading) return;
 
     const constraints: RunConstraints = {
-      initial_model: selectedModel.id === 'auto' ? undefined : selectedModel.id,
       depth,
-      citation_style: 'numbered',
+      model: selectedModel || undefined,
     };
 
-    onSubmit(query.trim(), constraints, { files, urls: parsedUrls });
-  }
+    onSubmit(trimmed, constraints, { files, urls });
+  }, [query, isLoading, depth, selectedModel, onSubmit, files, urls]);
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  }
+  // Keyboard shortcut (Cmd/Ctrl + Enter)
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleSubmit();
+      }
+    },
+    [handleSubmit],
+  );
 
-  function onPickMode(modeId: (typeof MODE_CHIPS)[number]['id']) {
-    const mode = MODE_CHIPS.find((chip) => chip.id === modeId);
-    if (!mode) return;
-    setDepth(mode.apply.depth);
-    if (mode.apply.prepend && !query.startsWith(mode.apply.prepend)) {
-      setQuery((prev) => `${mode.apply.prepend}${prev}`.trim());
-    }
-  }
+  // File handling
+  const handleFiles = useCallback((fileList: FileList | null) => {
+    if (!fileList) return;
+    setFiles((prev) => [...prev, ...Array.from(fileList)]);
+  }, []);
 
-  function onPickFiles(event: React.ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(event.target.files ?? []);
-    if (selected.length === 0) return;
-    setFiles((prev) => [...prev, ...selected]);
-    event.target.value = '';
-  }
-
-  function removeFile(index: number) {
+  const removeFile = useCallback((index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
-  }
+  }, []);
+
+  // URL handling
+  const addUrl = useCallback(() => {
+    const trimmed = urlInput.trim();
+    if (!trimmed) return;
+    try {
+      new URL(trimmed);
+      setUrls((prev) => [...prev, trimmed]);
+      setUrlInput('');
+    } catch {
+      // Invalid URL
+    }
+  }, [urlInput]);
+
+  const removeUrl = useCallback((index: number) => {
+    setUrls((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  // ── Voice Recording ─────────────────────────────────────────────────
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        await transcribeAudio(audioBlob);
+      };
+
+      mediaRecorder.start(250);
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  }, [isRecording]);
+
+  const transcribeAudio = useCallback(async (audioBlob: Blob) => {
+    setIsTranscribing(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'recording.webm');
+
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${baseUrl}/v1/transcribe`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error(`Transcription failed: ${res.statusText}`);
+
+      const data = await res.json();
+      if (data.text) {
+        setQuery((prev) => (prev ? `${prev} ${data.text}` : data.text));
+      }
+    } catch (err) {
+      console.error('Transcription error:', err);
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, []);
+
+  const canSubmit = query.trim().length > 0 && !isLoading;
 
   return (
-    <div ref={containerRef} className="mx-auto w-full max-w-4xl">
-      <div className="glass-panel rounded-2xl border px-3 pb-3 pt-3 sm:rounded-[30px] sm:px-5">
-        <textarea
-          ref={textareaRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="What do you want to know?"
-          rows={3}
-          disabled={isLoading}
-          className="max-h-[240px] min-h-[80px] w-full resize-none bg-transparent px-1 py-2 text-[15px] text-neutral-900 placeholder:text-neutral-400 focus:outline-none dark:text-neutral-100 dark:placeholder:text-neutral-500 sm:min-h-[96px] sm:text-[16px]"
-        />
+    <div className="w-full max-w-3xl mx-auto">
+      {/* Main input card */}
+      <div className="glass-panel rounded-3xl overflow-hidden">
+        {/* Textarea */}
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={isRecording ? '🎙️ Listening...' : isTranscribing ? '✨ Transcribing...' : 'What would you like to research?'}
+            rows={1}
+            disabled={isLoading || isRecording}
+            className={clsx(
+              'w-full resize-none bg-transparent px-5 pb-3 pt-5 text-sm text-neutral-900 placeholder-neutral-400 focus:outline-none dark:text-white dark:placeholder-neutral-600 sm:px-6 sm:text-base leading-relaxed',
+              isRecording && 'placeholder-red-400 dark:placeholder-red-400',
+            )}
+          />
 
-        {files.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-2">
-            {files.map((file, index) => (
-              <span
-                key={`${file.name}-${index}`}
-                className="inline-flex items-center gap-1 rounded-full border border-black/10 bg-white/80 px-2 py-1 text-xs text-neutral-700 dark:border-white/10 dark:bg-[#0f1218] dark:text-neutral-200"
+          {/* Recording indicator */}
+          <AnimatePresence>
+            {isRecording && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                className="absolute right-4 top-4 flex items-center gap-2"
               >
-                {file.name}
-                <button
-                  type="button"
-                  onClick={() => removeFile(index)}
-                  className="text-neutral-500 hover:text-neutral-900 dark:hover:text-white"
-                  aria-label="Remove file"
-                >
-                  <X size={12} />
+                <span className="relative flex h-3 w-3">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
+                </span>
+                <span className="text-xs font-medium text-red-500">REC</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Transcribing indicator */}
+          <AnimatePresence>
+            {isTranscribing && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute right-4 top-4 flex items-center gap-2"
+              >
+                <Loader2 size={14} className="animate-spin text-orange-500" />
+                <span className="text-xs font-medium text-orange-500">Transcribing...</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Attachments preview */}
+        <AnimatePresence>
+          {(files.length > 0 || urls.length > 0) && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="px-5 sm:px-6"
+            >
+              <div className="flex flex-wrap gap-2 pb-3">
+                {files.map((file, i) => (
+                  <span
+                    key={`f-${i}`}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-white/[0.06] rounded-lg border border-neutral-200 dark:border-white/[0.08]"
+                  >
+                    <FileText size={12} className="text-orange-500" />
+                    {file.name.length > 20 ? file.name.slice(0, 17) + '…' : file.name}
+                    <button onClick={() => removeFile(i)} className="ml-0.5 text-neutral-400 hover:text-red-500 transition-colors">
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+                {urls.map((url, i) => (
+                  <span
+                    key={`u-${i}`}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-white/[0.06] rounded-lg border border-neutral-200 dark:border-white/[0.08]"
+                  >
+                    <Globe size={12} className="text-blue-500" />
+                    {(() => { try { return new URL(url).hostname; } catch { return url.slice(0, 25); } })()}
+                    <button onClick={() => removeUrl(i)} className="ml-0.5 text-neutral-400 hover:text-red-500 transition-colors">
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* URL input row */}
+        <AnimatePresence>
+          {showUrlInput && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="px-5 sm:px-6"
+            >
+              <div className="flex gap-2 pb-3">
+                <input
+                  type="url"
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addUrl(); } }}
+                  placeholder="https://example.com"
+                  className="glass-input flex-1 text-xs"
+                  autoFocus
+                />
+                <button onClick={addUrl} className="btn-secondary text-xs py-1.5 px-3">
+                  <Plus size={14} />
+                  Add
                 </button>
-              </span>
-            ))}
-          </div>
-        )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {urlInput.trim().length > 0 && (
-          <div className="mt-2">
-            <textarea
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              rows={4}
-              placeholder="Paste multiple URLs (one per line or comma-separated)"
-              className="w-full rounded-2xl border border-black/10 bg-white/90 px-3 py-2 text-sm text-neutral-700 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-sky-500/25 dark:border-white/10 dark:bg-[#0b0e13] dark:text-neutral-200"
-            />
-            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-              {parsedUrls.length} URL{parsedUrls.length === 1 ? '' : 's'} detected
-            </p>
-          </div>
-        )}
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-black/[0.06] pt-3 dark:border-white/[0.06]">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={onPickFiles}
-            />
-
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAttachMenu((value) => !value);
-                  setShowModelMenu(false);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white/90 px-3 py-2 text-sm text-neutral-700 transition hover:bg-black/[0.04] dark:border-white/10 dark:bg-[#0d0f13] dark:text-neutral-200 dark:hover:bg-white/[0.06]"
-              >
-                <Paperclip size={14} />
-                Attach
-                <ChevronDown size={14} />
-              </button>
-
-              {showAttachMenu && (
-                <div className="absolute left-0 top-12 z-20 w-56 rounded-2xl border border-black/10 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#12151c]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      fileInputRef.current?.click();
-                      setShowAttachMenu(false);
-                    }}
-                    className="w-full rounded-xl px-3 py-2 text-left text-sm text-neutral-700 hover:bg-black/[0.04] dark:text-neutral-200 dark:hover:bg-white/[0.06]"
-                  >
-                    Upload file
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUrlInput((prev) => (prev ? prev : 'https://'));
-                      setShowAttachMenu(false);
-                    }}
-                    className="w-full rounded-xl px-3 py-2 text-left text-sm text-neutral-700 hover:bg-black/[0.04] dark:text-neutral-200 dark:hover:bg-white/[0.06]"
-                  >
-                    Add URLs
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUrlInput('');
-                      setShowAttachMenu(false);
-                    }}
-                    className="w-full rounded-xl px-3 py-2 text-left text-sm text-neutral-700 hover:bg-black/[0.04] dark:text-neutral-200 dark:hover:bg-white/[0.06]"
-                  >
-                    Clear URLs
-                  </button>
-                </div>
+        {/* Bottom toolbar */}
+        <div className="flex items-center justify-between gap-2 border-t border-black/[0.05] dark:border-white/[0.05] px-3 py-2.5 sm:px-4">
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+            {/* Voice button */}
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              disabled={isTranscribing}
+              className={clsx(
+                'shrink-0 btn-ghost !px-2 !py-1.5 transition-all',
+                isRecording
+                  ? 'text-red-500 hover:text-red-600 bg-red-500/10 rounded-lg animate-pulse'
+                  : isTranscribing
+                    ? 'text-orange-400 cursor-wait'
+                    : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
               )}
+              title={isRecording ? 'Stop recording' : 'Voice dictation'}
+            >
+              {isRecording ? (
+                <Square size={16} fill="currentColor" strokeWidth={0} />
+              ) : isTranscribing ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Mic size={16} strokeWidth={1.75} />
+              )}
+            </button>
+
+            {/* File attach */}
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="shrink-0 btn-ghost !px-2 !py-1.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+              title="Attach files"
+            >
+              <Paperclip size={16} strokeWidth={1.75} />
+            </button>
+
+            {/* URL attach */}
+            <button
+              onClick={() => setShowUrlInput((v) => !v)}
+              className={clsx(
+                'shrink-0 btn-ghost !px-2 !py-1.5',
+                showUrlInput ? 'text-orange-500' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
+              )}
+              title="Add URL"
+            >
+              <Link2 size={16} strokeWidth={1.75} />
+            </button>
+
+            {/* Divider */}
+            <div className="w-px h-5 bg-black/[0.06] dark:bg-white/[0.06] mx-1 shrink-0" />
+
+            {/* Inline depth pills */}
+            <div className="flex items-center gap-0.5 rounded-lg bg-black/[0.03] dark:bg-white/[0.03] p-0.5 shrink-0">
+              {DEPTH_PRESETS.map((preset) => {
+                const isSelected = depth === preset.value;
+                return (
+                  <button
+                    key={preset.value}
+                    onClick={() => setDepth(preset.value)}
+                    className={clsx(
+                      'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all duration-150',
+                      isSelected
+                        ? 'bg-white dark:bg-white/[0.12] text-neutral-900 dark:text-white shadow-sm'
+                        : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
+                    )}
+                  >
+                    <preset.icon size={11} className={isSelected ? 'text-orange-500' : preset.color} />
+                    <span className="hidden sm:inline">{preset.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowModelMenu((value) => !value);
-                  setShowAttachMenu(false);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.06] bg-white/80 px-2.5 py-1.5 text-xs transition hover:bg-black/[0.04] sm:px-3 sm:py-2 sm:text-sm text-neutral-700 dark:border-white/[0.08] dark:bg-[#0d0f13]/80 dark:text-neutral-200 dark:hover:bg-white/[0.06]"
-              >
-                  <Zap size={14} />
-                  <span className="hidden sm:inline">{selectedModel.label}</span>
-                  <span className="sm:hidden">{selectedModel.label.length > 12 ? selectedModel.label.slice(0, 12) + '...' : selectedModel.label}</span>
-                  <ChevronDown size={14} />
-              </button>
+            {/* Divider */}
+            <div className="w-px h-5 bg-black/[0.06] dark:bg-white/[0.06] mx-1 shrink-0" />
 
-              {showModelMenu && (
-                <div className="absolute left-0 top-12 z-20 w-72 max-h-72 overflow-y-auto rounded-2xl border border-black/10 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-[#12151c]">
-                  {modelOptions.map((mode) => {
-                    const selected = mode.id === selectedModelId;
-                    return (
-                      <button
-                        key={mode.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedModelId(mode.id);
-                          setShowModelMenu(false);
-                        }}
-                        className="flex w-full items-start justify-between gap-2 rounded-xl px-3 py-2 text-left hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-                      >
-                        <span>
-                          <span className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                            {mode.label}
-                          </span>
-                          <span className="block text-xs text-neutral-500 dark:text-neutral-400">
-                            {mode.description}
-                          </span>
-                        </span>
-                        {selected && <Check size={14} className="mt-1 text-sky-500" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+            {/* Inline model pills */}
+            <div className="flex items-center gap-0.5 rounded-lg bg-black/[0.03] dark:bg-white/[0.03] p-0.5 shrink-0">
+              {MODEL_PRESETS.map((model) => {
+                const isSelected = selectedModel === model.id;
+                return (
+                  <button
+                    key={model.id}
+                    onClick={() => setSelectedModel(model.id)}
+                    className={clsx(
+                      'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all duration-150',
+                      isSelected
+                        ? 'bg-white dark:bg-white/[0.12] text-neutral-900 dark:text-white shadow-sm'
+                        : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
+                    )}
+                  >
+                    <model.icon size={11} className={isSelected ? 'text-orange-500' : model.color} />
+                    <span className="hidden sm:inline">{model.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
+          {/* Submit */}
           <button
-            type="button"
             onClick={handleSubmit}
-            disabled={!query.trim() || isLoading}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black text-white shadow-lg shadow-black/20 transition-all hover:scale-105 hover:shadow-xl active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none dark:bg-white dark:text-black dark:shadow-white/10"
-            title={isLoading ? 'Running...' : 'Start research (Cmd+Enter)'}
+            disabled={!canSubmit}
+            className={clsx(
+              'flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-200 shrink-0',
+              canSubmit
+                ? 'bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md shadow-orange-600/20 hover:shadow-lg hover:shadow-orange-600/30 active:scale-[0.96]'
+                : 'bg-neutral-100 dark:bg-white/[0.04] text-neutral-400 dark:text-neutral-600 cursor-not-allowed',
+            )}
           >
             {isLoading ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white dark:border-black/30 dark:border-t-black" />
+              <Loader2 size={16} className="animate-spin" />
             ) : (
-              <Send size={15} strokeWidth={2.25} />
+              <ArrowUp size={16} strokeWidth={2.5} />
             )}
+            <span className="hidden sm:inline">
+              {isLoading ? 'Starting…' : 'Research'}
+            </span>
           </button>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
-        {MODE_CHIPS.map((mode) => (
-          <button
-            key={mode.id}
-            type="button"
-            onClick={() => onPickMode(mode.id)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.06] bg-white/80 px-3 py-1.5 text-xs transition hover:bg-black/[0.04] hover:scale-[1.02] active:scale-[0.98] sm:px-3.5 sm:py-2 sm:text-sm text-neutral-700 dark:border-white/[0.08] dark:bg-[#0f1218]/80 dark:text-neutral-200 dark:hover:bg-white/[0.07]"
-          >
-            <mode.icon size={14} />
-            {mode.label}
-          </button>
-        ))}
-      </div>
-
-      <p className="mt-2 text-center text-[10px] text-neutral-400 dark:text-neutral-500 sm:text-xs">
-        Cmd+Enter to send
+      {/* Keyboard hint */}
+      <p className="mt-3 text-center text-[11px] text-neutral-400 dark:text-neutral-700">
+        Press <kbd className="px-1.5 py-0.5 rounded bg-black/[0.04] dark:bg-white/[0.04] font-mono text-[10px]">⌘</kbd>
+        <span className="mx-0.5">+</span>
+        <kbd className="px-1.5 py-0.5 rounded bg-black/[0.04] dark:bg-white/[0.04] font-mono text-[10px]">Enter</kbd>
+        {' '}to submit
       </p>
     </div>
   );

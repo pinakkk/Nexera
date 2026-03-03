@@ -1,216 +1,169 @@
-"""Evaluator service – scores a research report on 4 quality dimensions."""
+"""Evaluator service – structured evaluation of research reports.
 
+Scores: groundedness, coverage, contradictions, source_diversity.
+Uses the evaluator system prompt for LLM-based scoring.
+"""
+
+from __future__ import annotations
+
+import json
 import logging
+import re
+from pathlib import Path
 from typing import Any
-
-from .llm import LLMService
 
 logger = logging.getLogger(__name__)
 
+_PASS_THRESHOLD = 0.65
+
+
+def _load_prompt() -> str:
+    path = Path(__file__).parent.parent.parent / "prompts" / "evaluator.txt"
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+
+
+def _clamp(v: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    return max(lo, min(hi, v))
+
 
 class EvaluatorService:
-    """Evaluate a synthesised report against the original plan and evidence.
-
-    Scores four dimensions on a 0-1 scale:
-
-    1. **Groundedness** – are claims supported by cited evidence?
-    2. **Coverage** – are all sub-questions from the plan addressed?
-    3. **Contradictions** – are conflicts between sources acknowledged?
-    4. **Source diversity** – is the report drawing from diverse domains?
-
-    The evaluator uses the *smart* LLM to judge quality.
-    """
+    """Evaluate report quality and decide pass/fail."""
 
     async def evaluate(
         self,
         report_md: str,
-        evidence: list[dict[str, Any]],
         plan: dict[str, Any],
-        llm: LLMService,
+        evidence: list[dict[str, Any]],
+        llm: Any,
     ) -> dict[str, Any]:
-        """Evaluate the report and return scores plus actionable feedback.
+        """Evaluate a report against the plan and evidence.
 
-        Parameters
-        ----------
-        report_md:
-            The Markdown research report.
-        evidence:
-            The evidence list from the retriever (per sub-question).
-        plan:
-            The plan dict from the planner (contains sub_questions, outline).
-        llm:
-            The LLM service instance to use.
-
-        Returns
-        -------
-        dict with keys:
-            ``scores``        – dict of float (groundedness, coverage, contradictions, source_diversity)
-            ``passed``        – bool
-            ``feedback``      – str (explanation of scores)
-            ``missing_areas`` – list[str] (sub-questions or topics not covered)
+        Returns dict with: scores, passed, missing_topics,
+        unsupported_claims, revision_suggestions, contradiction_notes.
         """
+        system_prompt = _load_prompt()
+
+        # Build concise evidence summary for prompt
+        evidence_summary = self._summarise_evidence(evidence)
         sub_questions = plan.get("sub_questions", [])
 
-        # Build a concise evidence summary for the eval prompt
-        evidence_summary = self._build_evidence_summary(evidence)
-
-        # Compute source diversity heuristically
-        domains = self._collect_domains(evidence)
-        heuristic_diversity = self._compute_diversity_score(domains)
-
-        prompt = f"""You are a research quality evaluator.  Evaluate the following
-research report against the plan and evidence provided.
-
-## Original Sub-Questions
-{chr(10).join(f"- {q}" for q in sub_questions)}
-
-## Evidence Summary (what the retriever found)
-{evidence_summary}
+        prompt = f"""{system_prompt}
 
 ## Report to Evaluate
-{report_md[:6000]}
+{report_md[:3000]}
 
----
+## Plan Sub-Questions
+{chr(10).join(f"- {q}" for q in sub_questions)}
 
-Score the report on these four dimensions (each 0.0 to 1.0):
+## Available Evidence Sources
+{evidence_summary}
 
-1. **groundedness**: What fraction of key factual claims in the report are
-   backed by an inline citation that matches evidence?  1.0 = all claims cited
-   and supported; 0.0 = no citations at all.
-
-2. **coverage**: What fraction of the original sub-questions are adequately
-   answered in the report?  1.0 = all answered; 0.0 = none addressed.
-
-3. **contradictions**: Are conflicting pieces of evidence acknowledged?
-   1.0 = all contradictions noted or no contradictions exist;
-   0.0 = contradictions silently ignored.
-
-4. **source_diversity**: {heuristic_diversity:.2f} (pre-computed from domain distribution).
-
-For each dimension, also provide a brief explanation.
-
-List any sub-questions or areas that are NOT adequately covered.
-
-Return ONLY valid JSON in this exact format:
-{{
-  "groundedness": 0.85,
-  "groundedness_explanation": "...",
-  "coverage": 0.9,
-  "coverage_explanation": "...",
-  "contradictions": 1.0,
-  "contradictions_explanation": "...",
-  "missing_areas": ["area 1", "area 2"],
-  "overall_feedback": "..."
-}}
+Evaluate the report and return JSON only.
 """
 
-        result = await llm.complete_json(prompt, task_type="smart", max_tokens=1500)
+        try:
+            raw = await llm.complete(
+                prompt=prompt,
+                task_type="smart",
+                temperature=0.2,
+                max_tokens=1024,
+            )
 
-        # Extract scores
-        groundedness = float(result.get("groundedness", 0.5))
-        coverage = float(result.get("coverage", 0.5))
-        contradictions = float(result.get("contradictions", 0.5))
-        source_diversity = heuristic_diversity  # use our computed value
+            # Parse JSON
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError:
+                match = re.search(r"\{.*\}", raw, re.DOTALL)
+                if match:
+                    result = json.loads(match.group(0))
+                else:
+                    result = self._fallback_result(report_md, sub_questions, evidence)
 
-        scores = {
-            "groundedness": _clamp(groundedness),
-            "coverage": _clamp(coverage),
-            "contradictions": _clamp(contradictions),
-            "source_diversity": _clamp(source_diversity),
-        }
+        except Exception as exc:
+            logger.warning("Evaluator LLM call failed: %s", exc)
+            result = self._fallback_result(report_md, sub_questions, evidence)
 
-        # Pass/fail logic
-        all_above_min = all(s > 0.6 for s in scores.values())
-        avg_score = sum(scores.values()) / len(scores)
-        passed = all_above_min and avg_score > 0.7
+        # Normalise scores
+        scores = result.get("scores", {})
+        for key in ["groundedness", "coverage", "contradictions", "source_diversity"]:
+            scores[key] = _clamp(float(scores.get(key, 0.5)))
 
-        feedback_parts: list[str] = []
-        feedback_parts.append(result.get("overall_feedback", ""))
-        if result.get("groundedness_explanation"):
-            feedback_parts.append(f"Groundedness: {result['groundedness_explanation']}")
-        if result.get("coverage_explanation"):
-            feedback_parts.append(f"Coverage: {result['coverage_explanation']}")
-        if result.get("contradictions_explanation"):
-            feedback_parts.append(f"Contradictions: {result['contradictions_explanation']}")
+        # Calculate overall
+        scores["overall"] = _clamp(
+            0.35 * scores["groundedness"]
+            + 0.30 * scores["coverage"]
+            + 0.20 * scores["contradictions"]
+            + 0.15 * scores["source_diversity"]
+        )
+        result["scores"] = scores
 
-        missing_areas = result.get("missing_areas", [])
+        # Determine pass/fail
+        passed = scores["overall"] >= _PASS_THRESHOLD
+        result["passed"] = passed
 
-        eval_result = {
-            "scores": scores,
-            "passed": passed,
-            "feedback": "\n".join(feedback_parts),
-            "missing_areas": missing_areas,
-        }
+        # Ensure all keys exist
+        result.setdefault("missing_topics", [])
+        result.setdefault("unsupported_claims", [])
+        result.setdefault("revision_suggestions", [])
+        result.setdefault("contradiction_notes", [])
 
         logger.info(
-            "Evaluation: groundedness=%.2f  coverage=%.2f  contradictions=%.2f  "
-            "diversity=%.2f  passed=%s",
-            scores["groundedness"],
-            scores["coverage"],
-            scores["contradictions"],
-            scores["source_diversity"],
-            passed,
+            "Evaluation: overall=%.2f passed=%s (G=%.2f C=%.2f X=%.2f D=%.2f)",
+            scores["overall"], passed,
+            scores["groundedness"], scores["coverage"],
+            scores["contradictions"], scores["source_diversity"],
         )
-
-        return eval_result
-
-    # ------------------------------------------------------------------ #
-    # Helpers
-    # ------------------------------------------------------------------ #
+        return result
 
     @staticmethod
-    def _build_evidence_summary(evidence: list[dict[str, Any]]) -> str:
+    def _summarise_evidence(evidence: list[dict[str, Any]]) -> str:
         """Build a concise evidence summary for the evaluation prompt."""
         lines: list[str] = []
-        for entry in evidence:
+        for entry in evidence[:10]:
             sq = entry.get("sub_question", "")
-            ev_count = len(entry.get("evidence", []))
-            sources = [e.get("domain", "?") for e in entry.get("evidence", [])]
-            unique_sources = list(set(sources))
-            lines.append(
-                f"- **{sq}**: {ev_count} evidence chunks from {', '.join(unique_sources)}"
-            )
-        return "\n".join(lines) or "No evidence available."
+            chunks = entry.get("evidence", [])
+            sources = set()
+            for c in chunks:
+                url = c.get("document_url", "")
+                if url:
+                    sources.add(url)
+            lines.append(f"- {sq}: {len(chunks)} chunks from {len(sources)} sources")
+        return "\n".join(lines) or "No evidence available"
 
     @staticmethod
-    def _collect_domains(evidence: list[dict[str, Any]]) -> list[str]:
-        """Collect all unique domains from evidence."""
-        domains: list[str] = []
+    def _fallback_result(
+        report_md: str,
+        sub_questions: list[str],
+        evidence: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Heuristic-based fallback when LLM evaluation fails."""
+        # Basic heuristic scoring
+        has_citations = bool(re.findall(r"\[\d+\]", report_md))
+        word_count = len(report_md.split())
+        unique_sources = set()
         for entry in evidence:
-            for ev in entry.get("evidence", []):
-                d = ev.get("domain", "")
-                if d:
-                    domains.append(d)
-        return domains
+            for c in entry.get("evidence", []):
+                url = c.get("document_url", "")
+                if url:
+                    unique_sources.add(url)
 
-    @staticmethod
-    def _compute_diversity_score(domains: list[str]) -> float:
-        """Compute source diversity score.
+        groundedness = 0.6 if has_citations else 0.3
+        coverage = min(1.0, word_count / 500)
+        source_div = min(1.0, len(unique_sources) / 5)
 
-        Uses inverse Herfindahl-Hirschman index normalised to [0, 1].
-        A single domain yields 0.0; perfectly uniform distribution yields 1.0.
-        """
-        if not domains:
-            return 0.0
-
-        from collections import Counter
-
-        counts = Counter(domains)
-        total = sum(counts.values())
-        n = len(counts)
-
-        if n <= 1:
-            return 0.3  # single source penalty
-
-        # HHI ranges from 1/n (equal) to 1 (monopoly)
-        hhi = sum((c / total) ** 2 for c in counts.values())
-        # Normalise: 0 when hhi=1 (bad), 1 when hhi=1/n (good)
-        if n == 1:
-            return 0.3
-        normalised = (1.0 - hhi) / (1.0 - 1.0 / n)
-        return max(0.3, min(1.0, normalised))
-
-
-def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
-    """Clamp *value* to [*lo*, *hi*]."""
-    return max(lo, min(hi, value))
+        return {
+            "scores": {
+                "groundedness": groundedness,
+                "coverage": coverage,
+                "contradictions": 0.5,
+                "source_diversity": source_div,
+            },
+            "passed": False,
+            "missing_topics": [],
+            "unsupported_claims": [],
+            "revision_suggestions": ["LLM evaluation unavailable – review manually"],
+            "contradiction_notes": [],
+        }

@@ -14,9 +14,24 @@ import {
 /*  API client for the Research Agent backend                          */
 /* ------------------------------------------------------------------ */
 
-const BASE_URL =
+const RAW_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 const SETTINGS_STORAGE_KEY = 'research-agent-settings';
+const BASE_URL = normalizeBaseUrl(RAW_BASE_URL);
+
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return 'http://localhost:8000';
+  const withProtocol = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `http://${trimmed}`;
+  try {
+    const parsed = new URL(withProtocol);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return 'http://localhost:8000';
+  }
+}
 
 function getBaseUrl(): string {
   if (typeof window === 'undefined') {
@@ -27,9 +42,62 @@ function getBaseUrl(): string {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) return BASE_URL;
     const parsed = JSON.parse(raw) as { apiUrl?: string };
-    return parsed.apiUrl?.trim() || BASE_URL;
+    return parsed.apiUrl?.trim() ? normalizeBaseUrl(parsed.apiUrl) : BASE_URL;
   } catch {
     return BASE_URL;
+  }
+}
+
+function buildNetworkError(
+  method: string,
+  primaryBaseUrl: string,
+  fallbackBaseUrl?: string,
+): Error {
+  if (fallbackBaseUrl && primaryBaseUrl !== fallbackBaseUrl) {
+    return new Error(
+      `Failed to fetch API (${method}) at ${primaryBaseUrl}. ` +
+      `Tried fallback ${fallbackBaseUrl} too. Ensure backend is running on port 8000.`,
+    );
+  }
+  return new Error(
+    `Failed to fetch API (${method}) at ${primaryBaseUrl}. ` +
+    'Ensure backend is running on port 8000.',
+  );
+}
+
+async function fetchWithFallback(
+  path: string,
+  options?: RequestInit,
+): Promise<Response> {
+  const primaryBaseUrl = getBaseUrl();
+  const method = options?.method ?? 'GET';
+  const primaryUrl = `${primaryBaseUrl}${path}`;
+
+  try {
+    return await fetch(primaryUrl, options);
+  } catch (error) {
+    const fallbackBaseUrl = BASE_URL;
+    if (primaryBaseUrl !== fallbackBaseUrl) {
+      const fallbackUrl = `${fallbackBaseUrl}${path}`;
+      try {
+        return await fetch(fallbackUrl, options);
+      } catch {
+        console.error('[apiFetch] Network error', {
+          primaryUrl,
+          fallbackUrl,
+          method,
+          error,
+        });
+        throw buildNetworkError(method, primaryBaseUrl, fallbackBaseUrl);
+      }
+    }
+
+    console.error('[apiFetch] Network error', {
+      primaryUrl,
+      method,
+      error,
+    });
+    throw buildNetworkError(method, primaryBaseUrl);
   }
 }
 
@@ -38,32 +106,20 @@ async function apiFetch<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const url = `${getBaseUrl()}${path}`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options?.headers ?? {}),
-      },
-      ...options,
-    });
-  } catch (error) {
-    console.error('[apiFetch] Network error', {
-      url,
-      method: options?.method ?? 'GET',
-      error,
-    });
-    throw error instanceof Error
-      ? error
-      : new Error('Network error while calling API');
-  }
+  const method = options?.method ?? 'GET';
+  const res = await fetchWithFallback(path, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options?.headers ?? {}),
+    },
+    ...options,
+  });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     console.error('[apiFetch] HTTP error', {
-      url,
-      method: options?.method ?? 'GET',
+      path,
+      method,
       status: res.status,
       statusText: res.statusText,
       body,
@@ -163,15 +219,15 @@ function normalizeEvaluation(scoresRaw: unknown): EvaluationScores | null {
     citation_quality: clampScore(scores.citation_quality),
     overall: clampScore(
       scores.overall ??
-        (() => {
-          const picked = [
-            clampScore(scores.coverage),
-            clampScore(scores.accuracy),
-            clampScore(scores.coherence),
-            clampScore(scores.citation_quality),
-          ];
-          return picked.reduce((acc, value) => acc + value, 0) / picked.length;
-        })(),
+      (() => {
+        const picked = [
+          clampScore(scores.coverage),
+          clampScore(scores.accuracy),
+          clampScore(scores.coherence),
+          clampScore(scores.citation_quality),
+        ];
+        return picked.reduce((acc, value) => acc + value, 0) / picked.length;
+      })(),
     ),
   };
 }
@@ -267,9 +323,9 @@ export async function createRun(
 ): Promise<{ run_id: string }> {
   const payloadConstraints = constraints
     ? {
-        ...constraints,
-        initial_model: constraints.initial_model ?? constraints.model,
-      }
+      ...constraints,
+      initial_model: constraints.initial_model ?? constraints.model,
+    }
     : undefined;
   if (payloadConstraints && 'model' in payloadConstraints) {
     delete payloadConstraints.model;
@@ -311,8 +367,7 @@ export async function ingestSources(
   const formData = new FormData();
   files.forEach((file) => formData.append('files', file));
 
-  const url = `${getBaseUrl()}/v1/sources/ingest`;
-  const res = await fetch(url, {
+  const res = await fetchWithFallback('/v1/sources/ingest', {
     method: 'POST',
     body: formData,
   });
@@ -333,6 +388,33 @@ export async function ingestSourceUrls(
     method: 'POST',
     body: JSON.stringify({ urls }),
   });
+}
+
+/** Delete a research run */
+export async function deleteRun(runId: string): Promise<{ deleted: boolean }> {
+  return apiFetch<{ deleted: boolean }>(`/v1/runs/${runId}`, {
+    method: 'DELETE',
+  });
+}
+
+/** Submit user input for interactive steering */
+export async function submitUserInput(
+  runId: string,
+  data: {
+    action: 'approve' | 'edit';
+    sub_questions?: string[];
+    constraints?: Record<string, unknown>;
+    excluded_domains?: string[];
+    focus_topics?: string[];
+  },
+): Promise<{ accepted: boolean; message: string }> {
+  return apiFetch<{ accepted: boolean; message: string }>(
+    `/v1/runs/${runId}/user-input`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    },
+  );
 }
 
 /** Health check */

@@ -2,10 +2,34 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ResearchInput } from '@/components/ResearchInput';
 import { createRun, ingestSources, ingestSourceUrls } from '@/lib/api';
 import { RunConstraints } from '@/lib/types';
-import { FlaskConical } from 'lucide-react';
+import { Sparkles, X, Zap, Brain, Shield, Globe } from 'lucide-react';
+
+const FEATURES = [
+  {
+    icon: Zap,
+    title: 'Parallel Research',
+    desc: 'Multiple search workers run simultaneously',
+  },
+  {
+    icon: Brain,
+    title: 'Knowledge Graph',
+    desc: 'Auto-builds entity relationships',
+  },
+  {
+    icon: Shield,
+    title: 'Verified Claims',
+    desc: 'CoVe pipeline fact-checks every claim',
+  },
+  {
+    icon: Globe,
+    title: 'Academic + Web',
+    desc: 'Searches papers, journals, and the web',
+  },
+];
 
 export default function HomePage() {
   const router = useRouter();
@@ -43,31 +67,100 @@ export default function HomePage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden px-4 pb-10 pt-14 sm:px-6 sm:pt-16">
-      <div className="pointer-events-none absolute left-1/2 top-[18%] h-[340px] w-[340px] -translate-x-1/2 rounded-full bg-sky-500/10 blur-3xl sm:top-[22%] sm:h-[460px] sm:w-[460px] dark:bg-sky-500/15" />
-      <div className="pointer-events-none absolute right-[10%] top-[40%] h-[200px] w-[200px] rounded-full bg-purple-500/5 blur-3xl sm:h-[300px] sm:w-[300px] dark:bg-purple-500/10" />
+    <div className="relative min-h-screen overflow-hidden px-4 pb-10 pt-16 sm:px-6 sm:pt-16">
+      {/* Background gradient orbs */}
+      <div className="pointer-events-none absolute left-1/2 top-[15%] h-[400px] w-[400px] -translate-x-1/2 rounded-full bg-gradient-to-br from-orange-500/[0.08] to-amber-500/[0.04] blur-[80px] sm:top-[18%] sm:h-[500px] sm:w-[500px]" />
+      <div className="pointer-events-none absolute right-[10%] top-[45%] h-[250px] w-[250px] rounded-full bg-gradient-to-br from-blue-500/[0.04] to-sky-500/[0.02] blur-[60px] sm:h-[350px] sm:w-[350px]" />
+      <div className="pointer-events-none absolute left-[5%] top-[60%] h-[200px] w-[200px] rounded-full bg-gradient-to-br from-purple-500/[0.03] to-violet-500/[0.02] blur-[50px]" />
+
       <div className="mx-auto flex min-h-[calc(100vh-7rem)] w-full max-w-5xl flex-col items-center justify-center">
-        <div className="fade-up mb-10 flex flex-col items-center text-center">
-          {/* <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-black/10 bg-white/90 text-neutral-900 shadow-sm dark:border-white/10 dark:bg-[#0e1117] dark:text-white">
-            <FlaskConical size={28} strokeWidth={1.75} />
-          </div> */}
-          <h1 className="h-display text-3xl font-semibold text-neutral-900 dark:text-white sm:text-5xl">
+        {/* Hero */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 0.61, 0.36, 1] }}
+          className="mb-10 flex flex-col items-center text-center"
+        >
+          {/* Brand icon */}
+          <motion.div
+            initial={{ scale: 0.5, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.5, delay: 0.1, type: 'spring', bounce: 0.4 }}
+            className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-orange-600 shadow-lg shadow-orange-500/25"
+          >
+            <Sparkles size={26} strokeWidth={2} className="text-white" />
+          </motion.div>
+
+          <h1 className="h-display text-3xl font-bold tracking-tight text-neutral-900 dark:text-white sm:text-5xl">
             Nexara
           </h1>
-          <p className="mt-2 max-w-2xl text-sm text-neutral-600 dark:text-neutral-400 sm:mt-3 sm:text-base">
-            Your Next Favourite Autonomous Agent.
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 sm:mt-4 sm:text-base">
+            Your AI-powered autonomous research agent — searches the web,
+            builds knowledge graphs, verifies claims, and delivers comprehensive reports.
           </p>
-        </div>
+        </motion.div>
 
-        <div className="fade-up w-full" style={{ animationDelay: '120ms' }}>
+        {/* Research Input */}
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="w-full"
+        >
           <ResearchInput onSubmit={handleSubmit} isLoading={isLoading} />
-        </div>
+        </motion.div>
 
-        {error && (
-          <div className="mt-4 w-full max-w-3xl rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-300">
-            {error}
-          </div>
-        )}
+        {/* Error */}
+        <AnimatePresence>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mt-4 w-full max-w-3xl flex items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-sm text-red-600 dark:text-red-400"
+            >
+              <span className="flex-1">{error}</span>
+              <button
+                onClick={() => setError(null)}
+                className="shrink-0 text-red-400 hover:text-red-600 dark:hover:text-red-300"
+              >
+                <X size={14} />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Feature pills */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.5 }}
+          className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-4 w-full max-w-3xl"
+        >
+          {FEATURES.map((feat, i) => (
+            <motion.div
+              key={feat.title}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.5 + i * 0.08 }}
+              className="flex items-center gap-2.5 rounded-xl glass-panel-solid px-3.5 py-3 group hover:-translate-y-0.5 hover:shadow-md hover:shadow-black/[0.04] dark:hover:shadow-black/[0.2] transition-all duration-300"
+            >
+              <feat.icon
+                size={16}
+                strokeWidth={1.75}
+                className="text-orange-500/70 shrink-0 group-hover:text-orange-500 transition-colors"
+              />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-neutral-800 dark:text-neutral-200 truncate">
+                  {feat.title}
+                </p>
+                <p className="text-[10px] text-neutral-500 dark:text-neutral-600 truncate">
+                  {feat.desc}
+                </p>
+              </div>
+            </motion.div>
+          ))}
+        </motion.div>
       </div>
     </div>
   );

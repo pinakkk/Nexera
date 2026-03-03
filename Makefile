@@ -1,12 +1,13 @@
-.PHONY: dev dev-api dev-web dev-web-local check-neon check-keys lint lint-api lint-web test test-api test-web migrate clean help
+.PHONY: dev dev-api dev-web dev-web-local check-mongo check-keys lint lint-api lint-web test test-api test-web migrate clean help setup-spacy
 
 # =============================================================================
-# Development
+# Development (local — no Docker)
 # =============================================================================
 
-## Start all services via Docker Compose
+## Start both API and frontend concurrently
 dev:
-	docker-compose up --build
+	@echo "Starting API (port 8000) and Web (port 3000)..."
+	@make -j2 dev-api dev-web
 
 ## Start the FastAPI backend locally (requires virtualenv)
 dev-api:
@@ -20,13 +21,21 @@ dev-web:
 dev-web-local:
 	cd apps/web && NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 
-## Validate Neon DNS/TCP/SQL connectivity from apps/api/.env
-check-neon:
-	cd apps/api && if [ -x .venv/bin/python ]; then .venv/bin/python scripts/check_neon.py; else python3 scripts/check_neon.py; fi
+## Validate MongoDB Atlas connectivity via Prisma
+check-mongo:
+	cd apps/web && export DATABASE_URL="$$(grep '^DATABASE_URL=' .env.local | cut -d= -f2-)" && node -e 'const {PrismaClient}=require("@prisma/client"); const p=new PrismaClient(); p.$$runCommandRaw({ping:1}).then(r=>{console.log("MongoDB OK",r);}).catch(e=>{console.error("MongoDB check failed:", e.message || e); process.exit(1);}).finally(async()=>{await p.$$disconnect();});'
 
-## Validate Groq + Tavily API keys from apps/api/.env
+## Validate API keys (Groq + search provider)
 check-keys:
 	cd apps/api && if [ -x .venv/bin/python ]; then .venv/bin/python scripts/check_integrations.py; else python3 scripts/check_integrations.py; fi
+
+# =============================================================================
+# Setup
+# =============================================================================
+
+## Download the spaCy model for Knowledge Graph entity extraction
+setup-spacy:
+	cd apps/api && if [ -x .venv/bin/python ]; then .venv/bin/python -m spacy download en_core_web_sm; else python3 -m spacy download en_core_web_sm; fi
 
 # =============================================================================
 # Linting
@@ -62,21 +71,24 @@ test-web:
 # Database
 # =============================================================================
 
-## Run Alembic database migrations
+## Push Prisma schema changes to MongoDB Atlas
 migrate:
-	cd apps/api && alembic upgrade head
+	cd apps/web && export DATABASE_URL="$$(grep '^DATABASE_URL=' .env.local | cut -d= -f2-)" && npm run prisma:push
 
-## Create a new Alembic migration (usage: make migration msg="description")
+## Generate Prisma client
 migration:
-	cd apps/api && alembic revision --autogenerate -m "$(msg)"
+	cd apps/web && npm run prisma:generate
 
 # =============================================================================
 # Cleanup
 # =============================================================================
 
-## Stop all containers and remove volumes
+## Remove build artifacts and caches
 clean:
-	docker-compose down -v
+	find apps -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find apps -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
+	rm -rf apps/web/.next apps/web/tsconfig.tsbuildinfo
+	@echo "Cleaned build artifacts"
 
 # =============================================================================
 # Help
@@ -88,20 +100,21 @@ help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "Targets:"
-	@echo "  dev           Start all services via Docker Compose"
+	@echo "  dev           Start API + Web concurrently (local)"
 	@echo "  dev-api       Start the FastAPI backend locally"
 	@echo "  dev-web       Start the Next.js frontend locally"
 	@echo "  dev-web-local Start Next.js frontend against localhost API"
-	@echo "  check-neon    Validate Neon DNS/TCP/SQL connectivity"
-	@echo "  check-keys    Validate Groq + Tavily API keys"
+	@echo "  check-mongo   Validate MongoDB Atlas connectivity via Prisma"
+	@echo "  check-keys    Validate API keys"
+	@echo "  setup-spacy   Download spaCy model for KG extraction"
 	@echo "  lint          Lint all projects"
 	@echo "  lint-api      Lint the Python backend"
 	@echo "  lint-web      Lint the Next.js frontend"
 	@echo "  test          Run all tests"
 	@echo "  test-api      Run backend tests"
 	@echo "  test-web      Run frontend tests"
-	@echo "  migrate       Run database migrations"
-	@echo "  migration     Create a new migration (msg=...)"
-	@echo "  clean         Stop containers and remove volumes"
+	@echo "  migrate       Push Prisma schema to MongoDB Atlas"
+	@echo "  migration     Generate Prisma client"
+	@echo "  clean         Remove build artifacts and caches"
 	@echo "  help          Show this help message"
 	@echo ""

@@ -16,6 +16,12 @@ from tenacity import (
 
 logger = logging.getLogger(__name__)
 
+# Keep requests below common Groq on-demand TPM ceilings.
+_MAX_REQUEST_TOKENS = 5200
+_FAST_RESPONSE_TOKEN_CAP = 900
+_SMART_RESPONSE_TOKEN_CAP = 1800
+_MIN_RESPONSE_TOKENS = 256
+
 
 class LLMService:
     """Thin async wrapper around the Groq chat-completion API.
@@ -119,14 +125,57 @@ class LLMService:
             self._run_model_override
             or (self.smart_model if task_type == "smart" else self.fast_model)
         )
-        logger.debug("LLM request  model=%s  task=%s  tokens=%d", model, task_type, max_tokens)
-
-        response = await self._client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            max_tokens=max_tokens,
+        safe_max_tokens = _cap_response_tokens(task_type=task_type, requested=max_tokens)
+        safe_prompt = _fit_prompt_to_budget(
+            prompt=prompt,
+            response_tokens=safe_max_tokens,
+            budget_tokens=_MAX_REQUEST_TOKENS,
         )
+
+        logger.debug(
+            "LLM request model=%s task=%s requested_tokens=%d safe_tokens=%d prompt_tokens~%d",
+            model,
+            task_type,
+            max_tokens,
+            safe_max_tokens,
+            _estimate_tokens(safe_prompt),
+        )
+
+        try:
+            response = await self._client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": safe_prompt}],
+                temperature=temperature,
+                max_tokens=safe_max_tokens,
+            )
+        except groq.RateLimitError as exc:
+            # If TPM was exceeded, retry once with an aggressively smaller request.
+            limit, requested = _parse_tpm_error(str(exc))
+            if limit is None:
+                raise
+
+            smaller_cap = max(_MIN_RESPONSE_TOKENS, safe_max_tokens // 2)
+            retry_budget = max(_MIN_RESPONSE_TOKENS + 200, min(limit - 200, 3200))
+            retry_prompt = _fit_prompt_to_budget(
+                prompt=safe_prompt,
+                response_tokens=smaller_cap,
+                budget_tokens=retry_budget,
+            )
+            logger.warning(
+                "LLM TPM limit hit (limit=%s requested=%s). Retrying with smaller request "
+                "(budget=%d response=%d prompt~%d).",
+                limit,
+                requested,
+                retry_budget,
+                smaller_cap,
+                _estimate_tokens(retry_prompt),
+            )
+            response = await self._client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": retry_prompt}],
+                temperature=temperature,
+                max_tokens=smaller_cap,
+            )
 
         text: str = response.choices[0].message.content or ""
         logger.debug("LLM response length=%d chars", len(text))
@@ -145,8 +194,8 @@ class LLMService:
     ) -> dict[str, Any]:
         """Call :meth:`complete` and parse the result as JSON.
 
-        If the model wraps its JSON in a Markdown code block (```json ...```),
-        the wrapper is stripped before parsing.
+        Handles: direct JSON, markdown fences, balanced-brace extraction,
+        and merging multiple JSON objects that share the same top-level key.
         """
         raw = await self.complete(
             prompt=prompt,
@@ -155,13 +204,13 @@ class LLMService:
             max_tokens=max_tokens,
         )
 
-        # First try direct parse
+        # 1) Direct parse
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
             pass
 
-        # Fallback: extract from markdown code fence
+        # 2) Markdown code fence
         match = re.search(r"```(?:json)?\s*\n?(.*?)```", raw, re.DOTALL)
         if match:
             try:
@@ -169,7 +218,20 @@ class LLMService:
             except json.JSONDecodeError:
                 pass
 
-        # Last resort: find first { ... } block
+        # 3) Extract all balanced JSON objects from raw text
+        parsed_objects = _extract_json_objects(raw)
+
+        if len(parsed_objects) == 1:
+            return parsed_objects[0]
+
+        if len(parsed_objects) > 1:
+            # Try to merge multiple objects with the same key (e.g. "queries")
+            merged = _merge_json_objects(parsed_objects)
+            if merged:
+                logger.info("Merged %d JSON fragments from LLM response", len(parsed_objects))
+                return merged
+
+        # 4) Last resort: greedy brace match
         brace_match = re.search(r"\{.*\}", raw, re.DOTALL)
         if brace_match:
             try:
@@ -179,6 +241,108 @@ class LLMService:
 
         logger.error("Failed to parse LLM response as JSON. Raw response:\n%s", raw[:500])
         raise ValueError("LLM did not return valid JSON")
+
+
+def _extract_json_objects(text: str) -> list[dict[str, Any]]:
+    """Extract all top-level JSON objects from text using balanced braces."""
+    objects: list[dict[str, Any]] = []
+    depth = 0
+    start = -1
+
+    for i, ch in enumerate(text):
+        if ch == '{':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0 and start >= 0:
+                try:
+                    obj = json.loads(text[start:i + 1])
+                    if isinstance(obj, dict):
+                        objects.append(obj)
+                except json.JSONDecodeError:
+                    pass
+                start = -1
+
+    return objects
+
+
+def _estimate_tokens(text: str) -> int:
+    """Very rough token estimate (works well enough for budget gating)."""
+    return max(1, len(text) // 4)
+
+
+def _trim_text_to_tokens(text: str, max_tokens: int) -> str:
+    """Trim text to approx token budget while preserving prompt tail when possible."""
+    if max_tokens <= 0:
+        return ""
+    if _estimate_tokens(text) <= max_tokens:
+        return text
+
+    max_chars = max_tokens * 4
+    if len(text) <= max_chars:
+        return text
+
+    # Keep both head and tail; tail often contains concrete instructions/output schema.
+    head_chars = int(max_chars * 0.7)
+    tail_chars = max_chars - head_chars
+    return f"{text[:head_chars]}\n\n[...truncated...]\n\n{text[-tail_chars:]}"
+
+
+def _fit_prompt_to_budget(prompt: str, response_tokens: int, budget_tokens: int) -> str:
+    """Ensure prompt + response stay under a conservative request budget."""
+    prompt_budget = max(512, budget_tokens - max(response_tokens, _MIN_RESPONSE_TOKENS))
+    return _trim_text_to_tokens(prompt, prompt_budget)
+
+
+def _cap_response_tokens(task_type: str, requested: int) -> int:
+    cap = _SMART_RESPONSE_TOKEN_CAP if task_type == "smart" else _FAST_RESPONSE_TOKEN_CAP
+    return max(_MIN_RESPONSE_TOKENS, min(requested, cap))
+
+
+def _parse_tpm_error(msg: str) -> tuple[int | None, int | None]:
+    """Extract TPM limit/requested values from Groq rate-limit messages."""
+    lim = re.search(r"Limit\s+(\d+)", msg)
+    req = re.search(r"Requested\s+(\d+)", msg)
+    limit = int(lim.group(1)) if lim else None
+    requested = int(req.group(1)) if req else None
+    return limit, requested
+
+
+def _merge_json_objects(objects: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Merge multiple JSON dicts that share the same top-level list key.
+
+    E.g. [{"queries": [...]}, {"queries": [...]}] → {"queries": [...combined...]}
+    """
+    if not objects:
+        return None
+
+    # Find common list-valued keys
+    list_keys: set[str] = set()
+    for obj in objects:
+        for k, v in obj.items():
+            if isinstance(v, list):
+                list_keys.add(k)
+
+    if not list_keys:
+        return objects[0]  # no lists to merge, return first
+
+    merged: dict[str, Any] = {}
+    for key in list_keys:
+        combined: list[Any] = []
+        for obj in objects:
+            val = obj.get(key, [])
+            if isinstance(val, list):
+                combined.extend(val)
+        merged[key] = combined
+
+    # Include any non-list keys from the first object
+    for k, v in objects[0].items():
+        if k not in merged:
+            merged[k] = v
+
+    return merged
 
 
 # ---------------------------------------------------------------------- #

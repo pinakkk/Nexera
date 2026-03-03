@@ -29,6 +29,15 @@ export const AgentStateLabels: Record<string, string> = {
   finalize: 'Completed',
   failed: 'Failed',
   error: 'Error',
+  // ── New hierarchical agent states ─────────────────────────────
+  research_gate: 'Classifying Query',
+  prompt_guard: 'Safety Check',
+  complexity_scored: 'Scoring Complexity',
+  evidence_packed: 'Packing Evidence',
+  evaluation_complete: 'Quality Check',
+  verification_started: 'Verifying',
+  verification_complete: 'Verification Done',
+  pdf_generated: 'PDF Ready',
 };
 
 export function formatAgentStateLabel(state: string): string {
