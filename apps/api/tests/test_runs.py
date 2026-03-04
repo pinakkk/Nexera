@@ -126,3 +126,35 @@ async def test_create_run_missing_query(async_client: AsyncClient) -> None:
     """POST /v1/runs without a query should return 422."""
     response = await async_client.post("/v1/runs", json={})
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_submit_steering_while_running(async_client: AsyncClient) -> None:
+    """POST /v1/runs/{run_id}/steering should queue user steering for active runs."""
+    with patch("app.api.v1.runs._run_orchestrator", new_callable=AsyncMock) as mock_orch:
+        mock_orch.return_value = None
+        create_resp = await async_client.post(
+            "/v1/runs",
+            json={"query": "Track EV battery supply chain risks"},
+        )
+
+    run_id = create_resp.json()["run_id"]
+    steer_resp = await async_client.post(
+        f"/v1/runs/{run_id}/steering",
+        json={"message": "Prioritize US and India policy updates from 2024 onward."},
+    )
+
+    assert steer_resp.status_code == 200
+    body = steer_resp.json()
+    assert body["queued"] is True
+    assert "queued" in body["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_submit_steering_run_not_found(async_client: AsyncClient) -> None:
+    """POST /v1/runs/{run_id}/steering returns 404 for unknown runs."""
+    response = await async_client.post(
+        "/v1/runs/00000000-0000-0000-0000-000000000000/steering",
+        json={"message": "Use only peer-reviewed sources."},
+    )
+    assert response.status_code == 404

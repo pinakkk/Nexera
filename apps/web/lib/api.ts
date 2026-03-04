@@ -417,6 +417,20 @@ export async function submitUserInput(
   );
 }
 
+/** Submit non-blocking steering context for an active run */
+export async function submitSteeringInput(
+  runId: string,
+  message: string,
+): Promise<{ queued: boolean; message: string }> {
+  return apiFetch<{ queued: boolean; message: string }>(
+    `/v1/runs/${runId}/steering`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    },
+  );
+}
+
 /** Health check */
 export async function healthCheck(): Promise<{ status: string }> {
   return apiFetch<{ status: string }>('/health');

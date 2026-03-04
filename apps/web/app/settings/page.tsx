@@ -17,6 +17,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { useTheme } from '@/components/theme';
+import { TEXT_CONFIG } from '@/lib/text-config';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -31,36 +32,34 @@ interface AppSettings {
 const STORAGE_KEY = 'research-agent-settings';
 
 const DEFAULT_SETTINGS: AppSettings = {
-  apiUrl: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000',
-  defaultModel: 'auto',
-  defaultDepth: 'standard',
+  apiUrl: process.env.NEXT_PUBLIC_API_URL ?? TEXT_CONFIG.settings.defaultApiUrl,
+  defaultModel: TEXT_CONFIG.settings.defaultModel,
+  defaultDepth: TEXT_CONFIG.settings.defaultDepth as AppSettings['defaultDepth'],
 };
 
 const MODEL_OPTIONS = [
-  { value: 'auto', label: 'Auto (recommended)' },
-  { value: 'fast', label: 'Fast (llama-3.1-8b-instant)' },
-  { value: 'expert', label: 'Expert (llama-3.1-70b-versatile)' },
+  ...TEXT_CONFIG.settings.modelOptions,
 ];
 
 const DEPTH_OPTIONS = [
   {
     value: 'quick' as const,
-    label: 'Quick',
-    description: 'Fast overview',
+    label: TEXT_CONFIG.settings.depthOptions[0].label,
+    description: TEXT_CONFIG.settings.depthOptions[0].description,
     icon: Zap,
     color: 'text-amber-500',
   },
   {
     value: 'standard' as const,
-    label: 'Standard',
-    description: 'Balanced depth',
+    label: TEXT_CONFIG.settings.depthOptions[1].label,
+    description: TEXT_CONFIG.settings.depthOptions[1].description,
     icon: Brain,
     color: 'text-sky-500',
   },
   {
     value: 'deep' as const,
-    label: 'Deep',
-    description: 'Thorough research',
+    label: TEXT_CONFIG.settings.depthOptions[2].label,
+    description: TEXT_CONFIG.settings.depthOptions[2].description,
     icon: Layers,
     color: 'text-purple-500',
   },
@@ -173,13 +172,13 @@ export default function SettingsPage() {
 
   function handleSave() {
     saveSettings(settings);
-    showToast('Settings saved successfully');
+    showToast(TEXT_CONFIG.settings.toastSaved);
   }
 
   function handleReset() {
     setSettings(DEFAULT_SETTINGS);
     saveSettings(DEFAULT_SETTINGS);
-    showToast('Settings reset to defaults');
+    showToast(TEXT_CONFIG.settings.toastReset);
   }
 
   function updateSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
@@ -214,9 +213,9 @@ export default function SettingsPage() {
                 <Settings size={17} strokeWidth={1.75} className="text-neutral-600 dark:text-neutral-400" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-neutral-900 dark:text-white">Settings</h1>
+                <h1 className="text-xl font-bold text-neutral-900 dark:text-white">{TEXT_CONFIG.settings.title}</h1>
                 <p className="text-xs text-neutral-500 dark:text-neutral-600">
-                  Configure your research agent preferences
+                  {TEXT_CONFIG.settings.subtitle}
                 </p>
               </div>
             </div>
@@ -225,11 +224,11 @@ export default function SettingsPage() {
           <div className="flex flex-wrap items-center gap-3">
             <button onClick={handleReset} className="btn-secondary">
               <RotateCcw size={14} strokeWidth={2} />
-              Reset
+              {TEXT_CONFIG.settings.reset}
             </button>
             <button onClick={handleSave} className="btn-primary">
               <Save size={14} strokeWidth={2} />
-              Save Settings
+              {TEXT_CONFIG.settings.save}
             </button>
           </div>
         </div>
@@ -238,24 +237,34 @@ export default function SettingsPage() {
       {/* Settings sections */}
       <div className="max-w-2xl flex-1 space-y-5">
         {/* API Configuration */}
-        <Section icon={Server} title="API Configuration" description="Backend connection settings" delay={0.1}>
+        <Section
+          icon={Server}
+          title={TEXT_CONFIG.settings.sections.apiTitle}
+          description={TEXT_CONFIG.settings.sections.apiDesc}
+          delay={0.1}
+        >
           <div>
-            <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-300">API Base URL</label>
+            <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-300">{TEXT_CONFIG.settings.apiBaseUrl}</label>
             <p className="text-xs text-neutral-500 dark:text-neutral-600 mt-0.5 mb-2">
-              The URL where your research agent API is running.
+              {TEXT_CONFIG.settings.apiHelp}
             </p>
             <input
               type="text"
               value={settings.apiUrl}
               onChange={(e) => updateSetting('apiUrl', e.target.value)}
-              placeholder="http://localhost:8000"
+              placeholder={TEXT_CONFIG.settings.apiPlaceholder}
               className="glass-input font-mono"
             />
           </div>
         </Section>
 
         {/* Appearance */}
-        <Section icon={Palette} title="Appearance" description="Choose the UI theme" delay={0.2}>
+        <Section
+          icon={Palette}
+          title={TEXT_CONFIG.settings.sections.appearanceTitle}
+          description={TEXT_CONFIG.settings.sections.appearanceDesc}
+          delay={0.2}
+        >
           <div className="flex items-center gap-3">
             <button
               onClick={() => setTheme('light')}
@@ -265,7 +274,7 @@ export default function SettingsPage() {
                 }`}
             >
               <Sun size={15} />
-              Light
+              {TEXT_CONFIG.settings.light}
             </button>
             <button
               onClick={() => setTheme('dark')}
@@ -275,17 +284,22 @@ export default function SettingsPage() {
                 }`}
             >
               <Moon size={15} />
-              Dark
+              {TEXT_CONFIG.settings.dark}
             </button>
           </div>
         </Section>
 
         {/* Model Preferences */}
-        <Section icon={Sparkles} title="Model Preferences" description="Default model and research depth" delay={0.3}>
+        <Section
+          icon={Sparkles}
+          title={TEXT_CONFIG.settings.sections.modelTitle}
+          description={TEXT_CONFIG.settings.sections.modelDesc}
+          delay={0.3}
+        >
           <div>
-            <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-300">Default Model</label>
+            <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-300">{TEXT_CONFIG.settings.defaultModelLabel}</label>
             <p className="text-xs text-neutral-500 dark:text-neutral-600 mt-0.5 mb-2">
-              Auto selects the best available model.
+              {TEXT_CONFIG.settings.defaultModelHelp}
             </p>
             <select
               value={settings.defaultModel}
@@ -306,9 +320,9 @@ export default function SettingsPage() {
           </div>
 
           <div>
-            <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-300">Default Research Depth</label>
+            <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-300">{TEXT_CONFIG.settings.defaultDepthLabel}</label>
             <p className="text-xs text-neutral-500 dark:text-neutral-600 mt-0.5 mb-3">
-              Controls how many iterations the agent performs.
+              {TEXT_CONFIG.settings.defaultDepthHelp}
             </p>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
               {DEPTH_OPTIONS.map((opt) => {

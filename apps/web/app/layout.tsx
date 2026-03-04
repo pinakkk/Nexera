@@ -3,6 +3,7 @@ import { Manrope, Space_Grotesk } from 'next/font/google';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme';
 import { AppShell } from '@/components/AppShell';
+import { TEXT_CONFIG } from '@/lib/text-config';
 
 const manrope = Manrope({
   subsets: ['latin'],
@@ -17,8 +18,8 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: 'Nexara – AI Research Agent',
-  description: 'Autonomous deep research with citations. Ask any research question and get a comprehensive, well-sourced report.',
+  title: TEXT_CONFIG.metadata.title,
+  description: TEXT_CONFIG.metadata.description,
 };
 
 export default function RootLayout({

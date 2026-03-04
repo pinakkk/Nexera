@@ -2,10 +2,12 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
+  ArrowUp,
   Loader2,
   Sparkles,
   Clock,
@@ -20,9 +22,11 @@ import {
 } from 'lucide-react';
 import { TraceTimeline } from '@/components/TraceTimeline';
 import { ReportViewer } from '@/components/ReportViewer';
+import { useTheme } from '@/components/theme';
 import { subscribeToRun } from '@/lib/sse';
-import { getRun, getRunEvents } from '@/lib/api';
+import { getRun, getRunEvents, submitSteeringInput } from '@/lib/api';
 import { RunEvent, RunResult, RunStatusValue, formatAgentStateLabel } from '@/lib/types';
+import { TEXT_CONFIG } from '@/lib/text-config';
 
 /* ── Status badge configs ────────────────────────────────────────────── */
 
@@ -31,27 +35,27 @@ const statusConfig: Record<
   { label: string; icon: React.ReactNode; className: string; pulse?: boolean }
 > = {
   pending: {
-    label: 'Queued',
+    label: TEXT_CONFIG.runPage.status.queued,
     icon: <Clock size={13} />,
     className:
       'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
     pulse: true,
   },
   running: {
-    label: 'Researching',
+    label: TEXT_CONFIG.runPage.status.researching,
     icon: <Zap size={13} />,
     className:
       'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/25',
     pulse: true,
   },
   completed: {
-    label: 'Completed',
+    label: TEXT_CONFIG.runPage.status.completed,
     icon: <CheckCircle2 size={13} />,
     className:
       'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
   },
   failed: {
-    label: 'Failed',
+    label: TEXT_CONFIG.runPage.status.failed,
     icon: <XCircle size={13} />,
     className:
       'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
@@ -95,10 +99,10 @@ function ThinkingSkeleton({ activeState }: { activeState: string | null }) {
           <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
             {activeState
               ? formatAgentStateLabel(activeState)
-              : 'Initializing research...'}
+              : TEXT_CONFIG.runPage.thinkingInit}
           </p>
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            Nexara is working on your query
+            {TEXT_CONFIG.runPage.thinkingSubtitle}
           </p>
         </div>
       </div>
@@ -122,7 +126,7 @@ function ThinkingSkeleton({ activeState }: { activeState: string | null }) {
 
       {/* Live step pills */}
       <div className="flex flex-wrap gap-2 pt-1">
-        {['Planning', 'Searching', 'Analyzing', 'Synthesizing'].map(
+        {TEXT_CONFIG.runPage.thinkingSteps.map(
           (step, i) => {
             const isActive =
               activeState?.toLowerCase().includes(step.toLowerCase().slice(0, 4));
@@ -174,11 +178,23 @@ function extractFailureMessage(event: RunEvent | null): string | null {
   return null;
 }
 
+function extractSteeringMessage(event: RunEvent): string {
+  const payloadMessage =
+    event.payload && typeof event.payload.message === 'string'
+      ? event.payload.message.trim()
+      : '';
+  if (payloadMessage) return payloadMessage;
+  return event.message;
+}
+
 /* ── Main page ───────────────────────────────────────────────────────── */
 
 export default function RunPage() {
+  const { theme } = useTheme();
   const params = useParams();
   const runId = params.id as string;
+  const traceLogoSrc =
+    theme === 'dark' ? '/assets/darksqaure.png' : '/assets/square.png';
 
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -189,7 +205,10 @@ export default function RunPage() {
   const [maxIterations, setMaxIterations] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showTrace, setShowTrace] = useState(false);
+  const [showTrace, setShowTrace] = useState(true);
+  const [steeringInput, setSteeringInput] = useState('');
+  const [steeringFeedback, setSteeringFeedback] = useState<string | null>(null);
+  const [isSteeringSubmitting, setIsSteeringSubmitting] = useState(false);
 
   const cleanupRef = useRef<(() => void) | null>(null);
 
@@ -217,7 +236,7 @@ export default function RunPage() {
       if (runData.status === 'failed') {
         setError(
           extractFailureMessage(lastFailedEvent) ??
-          'Run failed. Check Agent Trace for details.'
+          TEXT_CONFIG.runPage.runFailedDefault
         );
       }
 
@@ -243,7 +262,7 @@ export default function RunPage() {
           if (failed) {
             setError(
               extractFailureMessage(event) ??
-              'Run failed. Check Agent Trace for details.'
+              TEXT_CONFIG.runPage.runFailedDefault
             );
           }
         },
@@ -266,7 +285,7 @@ export default function RunPage() {
       setError(
         loadError instanceof Error
           ? loadError.message
-          : 'Failed to load run data.'
+          : TEXT_CONFIG.runPage.loadFailed
       );
       setIsLoading(false);
     }
@@ -278,6 +297,37 @@ export default function RunPage() {
       cleanupRef.current?.();
     };
   }, [initialize]);
+
+  const badge = statusConfig[status];
+  const isRunning = status === 'pending' || status === 'running';
+  const steeringEvents = events.filter((event) => event.state === 'steering_queued');
+  const canSubmitSteering =
+    isRunning && steeringInput.trim().length > 0 && !isSteeringSubmitting;
+
+  const handleSteeringSubmit = useCallback(async () => {
+    const message = steeringInput.trim();
+    if (!message || !isRunning || isSteeringSubmitting) return;
+
+    setIsSteeringSubmitting(true);
+    setSteeringFeedback(null);
+    try {
+      const response = await submitSteeringInput(runId, message);
+      if (!response.queued) {
+        setSteeringFeedback(response.message);
+        return;
+      }
+      setSteeringInput('');
+      setSteeringFeedback(TEXT_CONFIG.runPage.steeringQueuedSuccess);
+    } catch (submitError) {
+      setSteeringFeedback(
+        submitError instanceof Error
+          ? submitError.message
+          : TEXT_CONFIG.runPage.steeringQueuedFailure,
+      );
+    } finally {
+      setIsSteeringSubmitting(false);
+    }
+  }, [isRunning, isSteeringSubmitting, runId, steeringInput]);
 
   /* ── Loading state ─────────────────────────────────────────────────── */
 
@@ -297,15 +347,12 @@ export default function RunPage() {
             <div className="absolute inset-0 animate-ping rounded-full bg-orange-500/20" />
           </div>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            Loading research...
+            {TEXT_CONFIG.runPage.loadingResearch}
           </p>
         </motion.div>
       </div>
     );
   }
-
-  const badge = statusConfig[status];
-  const isRunning = status === 'pending' || status === 'running';
 
   return (
     <div className="relative min-h-screen px-3 pb-8 pt-14 sm:px-5 sm:pt-5 lg:px-8">
@@ -337,13 +384,13 @@ export default function RunPage() {
             <Link
               href="/"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-black/[0.08] text-neutral-500 transition-all hover:bg-orange-500/10 hover:text-orange-600 hover:border-orange-500/20 dark:border-white/[0.08] dark:text-neutral-400 dark:hover:text-orange-400"
-              title="Back"
+              title={TEXT_CONFIG.runPage.backTitle}
             >
               <ArrowLeft size={16} />
             </Link>
             <div className="min-w-0 flex-1">
               <p className="truncate text-base font-semibold text-neutral-900 dark:text-white sm:text-lg">
-                {query || 'Research Run'}
+                {query || TEXT_CONFIG.runPage.noQueryFallback}
               </p>
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
                 {/* Status badge */}
@@ -370,7 +417,7 @@ export default function RunPage() {
                 {/* Iteration badge */}
                 {maxIterations > 0 && (
                   <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-neutral-500 dark:bg-white/[0.05] dark:text-neutral-400">
-                    Iteration {iteration}/{maxIterations}
+                    {TEXT_CONFIG.runPage.iterationPrefix} {iteration}/{maxIterations}
                   </span>
                 )}
               </div>
@@ -382,7 +429,7 @@ export default function RunPage() {
               className="flex h-9 items-center gap-1.5 rounded-xl border border-black/[0.08] px-3 text-xs font-medium text-neutral-600 transition-all hover:bg-orange-500/10 hover:text-orange-600 dark:border-white/[0.08] dark:text-neutral-400 dark:hover:text-orange-400 lg:hidden"
             >
               <Zap size={13} />
-              Trace
+              {TEXT_CONFIG.runPage.traceToggle}
             </button>
           </header>
 
@@ -416,7 +463,7 @@ export default function RunPage() {
                 {query}
               </div>
               <p className="mt-1 text-right text-[11px] text-neutral-400 dark:text-neutral-500">
-                You
+                {TEXT_CONFIG.runPage.userLabel}
               </p>
             </motion.div>
 
@@ -442,11 +489,78 @@ export default function RunPage() {
                 )}
               </div>
               <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-                <Sparkles size={10} className="mr-1 inline text-orange-500" />
-                Nexara
+                {TEXT_CONFIG.runPage.assistantName}
               </p>
             </motion.div>
+
+            {/* User steering notes */}
+            {steeringEvents.map((event) => (
+              <motion.div
+                key={event.id}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="ml-auto max-w-[92%] sm:max-w-[78%]"
+              >
+                <div className="rounded-2xl rounded-tr-md border border-orange-500/25 bg-orange-500/10 px-4 py-3 text-sm text-orange-700 dark:text-orange-300">
+                  {extractSteeringMessage(event)}
+                </div>
+                <p className="mt-1 text-right text-[11px] text-neutral-400 dark:text-neutral-500">
+                  {TEXT_CONFIG.runPage.steeringUserLabel}
+                </p>
+              </motion.div>
+            ))}
           </div>
+
+          {/* Non-blocking steering input */}
+          <AnimatePresence>
+            {isRunning && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="mt-4 border-t border-black/[0.06] pt-3 dark:border-white/[0.06]"
+              >
+                <div className="flex items-end gap-2">
+                  <textarea
+                    value={steeringInput}
+                    onChange={(event) => setSteeringInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        void handleSteeringSubmit();
+                      }
+                    }}
+                    rows={1}
+                    placeholder={TEXT_CONFIG.runPage.steeringPlaceholder}
+                    className="min-h-[42px] flex-1 resize-none rounded-xl border border-black/[0.08] bg-white/80 px-3 py-2 text-sm text-neutral-800 outline-none transition-colors focus:border-orange-500/40 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-neutral-100"
+                  />
+                  <button
+                    onClick={() => void handleSteeringSubmit()}
+                    disabled={!canSubmitSteering}
+                    className={`flex h-[42px] w-[42px] items-center justify-center rounded-xl transition-all ${canSubmitSteering
+                      ? 'bg-orange-500 text-white hover:bg-orange-600'
+                      : 'bg-neutral-100 text-neutral-400 dark:bg-white/[0.06] dark:text-neutral-600'
+                      }`}
+                    title={TEXT_CONFIG.runPage.steeringSubmitTitle}
+                  >
+                    {isSteeringSubmitting ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <ArrowUp size={16} />
+                    )}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+                  {TEXT_CONFIG.runPage.steeringHint}
+                </p>
+                {steeringFeedback && (
+                  <p className="mt-1 text-xs text-orange-600 dark:text-orange-400">
+                    {steeringFeedback}
+                  </p>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.section>
 
         {/* ── Agent Trace Sidebar ─────────────────────────────────── */}
@@ -454,28 +568,34 @@ export default function RunPage() {
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.4, delay: 0.15 }}
-          className={`glass-panel rounded-2xl border p-3 sm:rounded-[28px] sm:p-5 lg:block lg:w-[360px] lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:sticky lg:top-5 ${showTrace ? 'block' : 'hidden lg:block'
+          className={`rounded-2xl p-1 sm:p-2 lg:block lg:w-[360px] lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:sticky lg:top-5 ${showTrace ? 'block' : 'hidden lg:block'
             }`}
         >
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-orange-500/15 to-amber-500/15">
-                <Zap size={13} className="text-orange-500" />
-              </div>
+              <Image
+                key={traceLogoSrc}
+                src={traceLogoSrc}
+                alt={TEXT_CONFIG.runPage.traceTitle}
+                width={18}
+                height={18}
+                className="h-[18px] w-[18px] rounded-md object-cover"
+              />
               <p className="text-sm font-semibold text-neutral-900 dark:text-white">
-                Agent Trace
+                {TEXT_CONFIG.runPage.traceTitle}
               </p>
             </div>
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-mono text-neutral-500 dark:bg-white/[0.05] dark:text-neutral-400">
+            <span className="px-1 text-[11px] font-mono text-neutral-500 dark:text-neutral-400">
               {runId.slice(0, 8)}
             </span>
           </div>
 
           {/* Event count badge */}
           {events.length > 0 && (
-            <div className="mb-3 flex items-center gap-2 rounded-xl border border-black/[0.04] bg-neutral-50 px-3 py-2 dark:border-white/[0.04] dark:bg-white/[0.02]">
-              <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                {events.length} event{events.length !== 1 ? 's' : ''} tracked
+            <div className="mb-3 flex items-center gap-2 px-1 text-xs text-neutral-500 dark:text-neutral-400">
+              <span>
+                {events.length} event{events.length !== 1 ? 's' : ''}{' '}
+                {TEXT_CONFIG.runPage.eventsTrackedSuffix}
               </span>
               {isRunning && (
                 <span className="relative ml-auto flex h-2 w-2">

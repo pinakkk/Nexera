@@ -95,6 +95,7 @@ class OrchestratorState(TypedDict, total=False):
     # Interactive steering
     user_input_received: bool
     user_modifications: dict[str, Any]
+    steering_notes: list[str]
 
     # Error tracking
     errors: list[str]
@@ -105,6 +106,8 @@ EventCallback = Callable[[str, str, dict[str, Any]], Coroutine[Any, Any, None]]
 
 # Registry for pending user input (run_id -> asyncio.Event + data)
 _user_input_registry: dict[str, dict[str, Any]] = {}
+# Registry for non-blocking steering updates (run_id -> queued notes)
+_steering_registry: dict[str, list[dict[str, Any]]] = {}
 
 
 def register_user_input_wait(run_id: str) -> asyncio.Event:
@@ -135,6 +138,35 @@ def get_user_input_data(run_id: str) -> dict[str, Any] | None:
 def cleanup_user_input(run_id: str) -> None:
     """Clean up user input registry for a run."""
     _user_input_registry.pop(run_id, None)
+
+
+def register_steering_channel(run_id: str) -> None:
+    """Ensure a steering queue exists for this run."""
+    _steering_registry.setdefault(run_id, [])
+
+
+def submit_steering_input(run_id: str, data: dict[str, Any]) -> bool:
+    """Queue non-blocking steering input for an active run."""
+    queue = _steering_registry.get(run_id)
+    if queue is None:
+        return False
+    queue.append(data)
+    return True
+
+
+def drain_steering_inputs(run_id: str) -> list[dict[str, Any]]:
+    """Drain and return queued steering inputs for this run."""
+    queue = _steering_registry.get(run_id)
+    if not queue:
+        return []
+    drained = list(queue)
+    queue.clear()
+    return drained
+
+
+def cleanup_steering_channel(run_id: str) -> None:
+    """Remove steering queue for completed/failed runs."""
+    _steering_registry.pop(run_id, None)
 
 
 # ---------------------------------------------------------------------- #
@@ -219,6 +251,7 @@ class Orchestrator:
         """Execute the full research pipeline for *run_id*."""
         # Reset per-run caches
         self._searcher.reset()
+        register_steering_channel(str(run_id))
 
         state = State.INTAKE
         memory: OrchestratorState = {
@@ -248,6 +281,7 @@ class Orchestrator:
             "kg_summary": "",
             "user_input_received": False,
             "user_modifications": {},
+            "steering_notes": [],
             "errors": [],
         }
 
@@ -333,6 +367,7 @@ class Orchestrator:
                 logger.exception("Failed to persist fatal error state")
         finally:
             cleanup_user_input(str(run_id))
+            cleanup_steering_channel(str(run_id))
 
         return memory
 
@@ -522,6 +557,12 @@ class Orchestrator:
         Pipeline per worker:
         query_gen → search → dedupe → extract → parse → store → chunk → retrieve
         """
+        await self._consume_pending_steering(
+            memory=memory,
+            event_callback=event_callback,
+            phase="research_loop",
+        )
+
         sub_questions = memory["plan"].get("sub_questions", [])
 
         # On refinement iterations, include new sub-questions
@@ -789,6 +830,12 @@ class Orchestrator:
         event_callback: EventCallback,
     ) -> State:
         """Synthesise a Markdown report from evidence."""
+        await self._consume_pending_steering(
+            memory=memory,
+            event_callback=event_callback,
+            phase="synthesize",
+        )
+
         citation_style = memory["constraints"].get("citation_style", "numbered")
 
         result = await self._synthesizer.synthesize(
@@ -900,6 +947,12 @@ class Orchestrator:
         event_callback: EventCallback,
     ) -> State:
         """Refine the research plan if verification failed."""
+        await self._consume_pending_steering(
+            memory=memory,
+            event_callback=event_callback,
+            phase="refine",
+        )
+
         memory["iteration"] += 1
 
         if memory["iteration"] >= memory["max_iterations"]:
@@ -944,6 +997,102 @@ class Orchestrator:
         )
 
         return State.RESEARCH_LOOP
+
+    async def _consume_pending_steering(
+        self,
+        memory: OrchestratorState,
+        event_callback: EventCallback,
+        *,
+        phase: str,
+    ) -> None:
+        """Apply queued non-blocking user steering updates at safe checkpoints."""
+        queued = drain_steering_inputs(memory["run_id"])
+        if not queued:
+            return
+
+        incoming_notes: list[str] = []
+        for item in queued:
+            note = str(item.get("message", "")).strip()
+            if not note:
+                continue
+            incoming_notes.append(note[:500])
+
+        if not incoming_notes:
+            return
+
+        applied_notes: list[str] = []
+        steering_notes = memory.setdefault("steering_notes", [])
+        for note in incoming_notes:
+            if note in steering_notes:
+                continue
+            steering_notes.append(note)
+            applied_notes.append(note)
+
+        if not applied_notes:
+            return
+
+        constraints = memory.setdefault("constraints", {})
+        steering_constraints = constraints.get("steering_notes")
+        if not isinstance(steering_constraints, list):
+            steering_constraints = []
+        for note in applied_notes:
+            if note not in steering_constraints:
+                steering_constraints.append(note)
+        constraints["steering_notes"] = steering_constraints[-10:]
+
+        plan = memory.setdefault("plan", {})
+        focus_areas = plan.get("focus_areas")
+        if not isinstance(focus_areas, list):
+            focus_areas = []
+        for note in applied_notes:
+            if note not in focus_areas:
+                focus_areas.append(note)
+        plan["focus_areas"] = focus_areas[-10:]
+
+        if phase in {"research_loop", "refine"}:
+            sub_questions = plan.get("sub_questions")
+            if not isinstance(sub_questions, list):
+                sub_questions = []
+            for note in applied_notes:
+                sq = f"Incorporate user steering context: {note}"
+                if sq not in sub_questions:
+                    sub_questions.append(sq)
+            plan["sub_questions"] = sub_questions
+
+        if phase in {"synthesize", "verify", "finalize"}:
+            outline = plan.get("outline")
+            if not isinstance(outline, list):
+                outline = []
+            steering_desc = "; ".join(applied_notes[-3:])[:700]
+            updated = False
+            for section in outline:
+                if (
+                    isinstance(section, dict)
+                    and str(section.get("title", "")).strip().lower() == "user steering"
+                ):
+                    section["description"] = steering_desc
+                    updated = True
+                    break
+            if not updated:
+                outline.append(
+                    {
+                        "title": "User Steering",
+                        "description": steering_desc,
+                    }
+                )
+            plan["outline"] = outline
+
+        await self._emit_event(
+            event_callback,
+            "steering_applied",
+            f"Applied {len(applied_notes)} steering update(s) at {phase}",
+            {
+                "phase": phase,
+                "notes_count": len(applied_notes),
+                "notes": applied_notes,
+            },
+            memory,
+        )
 
     # ------------------------------------------------------------------ #
     # Event emission

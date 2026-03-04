@@ -21,18 +21,20 @@ import {
   FileText,
   Mic,
   Square,
+  ChevronDown,
 } from 'lucide-react';
 import type { RunConstraints } from '@/lib/types';
 import clsx from 'clsx';
+import { TEXT_CONFIG } from '@/lib/text-config';
 
 /* ------------------------------------------------------------------ */
 /*  Depth presets                                                      */
 /* ------------------------------------------------------------------ */
 
 const DEPTH_PRESETS = [
-  { value: 'quick' as const, label: 'Quick', icon: Zap, color: 'text-amber-500' },
-  { value: 'standard' as const, label: 'Standard', icon: Brain, color: 'text-sky-500' },
-  { value: 'deep' as const, label: 'Deep', icon: Layers, color: 'text-purple-500' },
+  { value: 'quick' as const, label: TEXT_CONFIG.researchInput.depthQuick, icon: Zap, color: 'text-amber-500' },
+  { value: 'standard' as const, label: TEXT_CONFIG.researchInput.depthStandard, icon: Brain, color: 'text-sky-500' },
+  { value: 'deep' as const, label: TEXT_CONFIG.researchInput.depthDeep, icon: Layers, color: 'text-purple-500' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -40,8 +42,8 @@ const DEPTH_PRESETS = [
 /* ------------------------------------------------------------------ */
 
 const MODEL_PRESETS = [
-  { id: 'llama-3.3-70b-versatile', label: 'Llama 70B', icon: Brain, color: 'text-purple-500' },
-  { id: 'llama-3.1-8b-instant', label: 'Llama 8B', icon: Zap, color: 'text-amber-500' },
+  { id: 'llama-3.3-70b-versatile', label: TEXT_CONFIG.researchInput.model70b, icon: Brain, color: 'text-purple-500' },
+  { id: 'llama-3.1-8b-instant', label: TEXT_CONFIG.researchInput.model8b, icon: Zap, color: 'text-amber-500' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -71,11 +73,13 @@ export function ResearchInput({
   const [query, setQuery] = useState('');
   const [depth, setDepth] = useState<'quick' | 'standard' | 'deep'>('standard');
   const [selectedModel, setSelectedModel] = useState(MODEL_PRESETS[0].id);
+  const [openMenu, setOpenMenu] = useState<'depth' | 'model' | null>(null);
 
   const [files, setFiles] = useState<File[]>([]);
   const [urls, setUrls] = useState<string[]>([]);
   const [urlInput, setUrlInput] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
 
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -94,6 +98,30 @@ export function ResearchInput({
   useEffect(() => {
     resizeTextarea();
   }, [query, resizeTextarea]);
+
+  useEffect(() => {
+    if (!openMenu) return;
+
+    const handleClickAway = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (target && menuContainerRef.current && !menuContainerRef.current.contains(target)) {
+        setOpenMenu(null);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenMenu(null);
+    };
+
+    document.addEventListener('mousedown', handleClickAway);
+    document.addEventListener('touchstart', handleClickAway);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickAway);
+      document.removeEventListener('touchstart', handleClickAway);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [openMenu]);
 
   // Submit handler
   const handleSubmit = useCallback(() => {
@@ -147,37 +175,6 @@ export function ResearchInput({
   }, []);
 
   // ── Voice Recording ─────────────────────────────────────────────────
-  const startRecording = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        await transcribeAudio(audioBlob);
-      };
-
-      mediaRecorder.start(250);
-      setIsRecording(true);
-    } catch (err) {
-      console.error('Microphone access denied:', err);
-    }
-  }, []);
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  }, [isRecording]);
-
   const transcribeAudio = useCallback(async (audioBlob: Blob) => {
     setIsTranscribing(true);
     try {
@@ -203,12 +200,45 @@ export function ResearchInput({
     }
   }, []);
 
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        await transcribeAudio(audioBlob);
+      };
+
+      mediaRecorder.start(250);
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+    }
+  }, [transcribeAudio]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  }, [isRecording]);
+
   const canSubmit = query.trim().length > 0 && !isLoading;
+  const selectedDepthPreset = DEPTH_PRESETS.find((preset) => preset.value === depth) ?? DEPTH_PRESETS[1];
+  const selectedModelPreset = MODEL_PRESETS.find((model) => model.id === selectedModel) ?? MODEL_PRESETS[0];
 
   return (
     <div className="w-full max-w-3xl mx-auto">
       {/* Main input card */}
-      <div className="glass-panel rounded-3xl overflow-hidden">
+      <div className="glass-panel rounded-3xl overflow-visible">
         {/* Textarea */}
         <div className="relative">
           <textarea
@@ -216,7 +246,13 @@ export function ResearchInput({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isRecording ? '🎙️ Listening...' : isTranscribing ? '✨ Transcribing...' : 'What would you like to research?'}
+            placeholder={
+              isRecording
+                ? TEXT_CONFIG.researchInput.placeholderListening
+                : isTranscribing
+                  ? TEXT_CONFIG.researchInput.placeholderTranscribing
+                  : TEXT_CONFIG.researchInput.placeholderDefault
+            }
             rows={1}
             disabled={isLoading || isRecording}
             className={clsx(
@@ -238,7 +274,9 @@ export function ResearchInput({
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
                   <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
                 </span>
-                <span className="text-xs font-medium text-red-500">REC</span>
+                <span className="text-xs font-medium text-red-500">
+                  {TEXT_CONFIG.researchInput.recordingStatus}
+                </span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -253,7 +291,9 @@ export function ResearchInput({
                 className="absolute right-4 top-4 flex items-center gap-2"
               >
                 <Loader2 size={14} className="animate-spin text-orange-500" />
-                <span className="text-xs font-medium text-orange-500">Transcribing...</span>
+                <span className="text-xs font-medium text-orange-500">
+                  {TEXT_CONFIG.researchInput.transcribingStatus}
+                </span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -313,13 +353,13 @@ export function ResearchInput({
                   value={urlInput}
                   onChange={(e) => setUrlInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addUrl(); } }}
-                  placeholder="https://example.com"
+                  placeholder={TEXT_CONFIG.researchInput.addUrlPlaceholder}
                   className="glass-input flex-1 text-xs"
                   autoFocus
                 />
                 <button onClick={addUrl} className="btn-secondary text-xs py-1.5 px-3">
                   <Plus size={14} />
-                  Add
+                  {TEXT_CONFIG.researchInput.addButton}
                 </button>
               </div>
             </motion.div>
@@ -328,7 +368,7 @@ export function ResearchInput({
 
         {/* Bottom toolbar */}
         <div className="flex items-center justify-between gap-2 border-t border-black/[0.05] dark:border-white/[0.05] px-3 py-2.5 sm:px-4">
-          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+          <div className="flex min-w-0 items-center gap-1 overflow-visible">
             {/* Voice button */}
             <button
               onClick={isRecording ? stopRecording : startRecording}
@@ -341,7 +381,11 @@ export function ResearchInput({
                     ? 'text-orange-400 cursor-wait'
                     : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
               )}
-              title={isRecording ? 'Stop recording' : 'Voice dictation'}
+              title={
+                isRecording
+                  ? TEXT_CONFIG.researchInput.voiceTitleStop
+                  : TEXT_CONFIG.researchInput.voiceTitleStart
+              }
             >
               {isRecording ? (
                 <Square size={16} fill="currentColor" strokeWidth={0} />
@@ -357,7 +401,7 @@ export function ResearchInput({
             <button
               onClick={() => fileInputRef.current?.click()}
               className="shrink-0 btn-ghost !px-2 !py-1.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-              title="Attach files"
+              title={TEXT_CONFIG.researchInput.attachFilesTitle}
             >
               <Paperclip size={16} strokeWidth={1.75} />
             </button>
@@ -369,7 +413,7 @@ export function ResearchInput({
                 'shrink-0 btn-ghost !px-2 !py-1.5',
                 showUrlInput ? 'text-orange-500' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
               )}
-              title="Add URL"
+              title={TEXT_CONFIG.researchInput.addUrlTitle}
             >
               <Link2 size={16} strokeWidth={1.75} />
             </button>
@@ -377,51 +421,95 @@ export function ResearchInput({
             {/* Divider */}
             <div className="w-px h-5 bg-black/[0.06] dark:bg-white/[0.06] mx-1 shrink-0" />
 
-            {/* Inline depth pills */}
-            <div className="flex items-center gap-0.5 rounded-lg bg-black/[0.03] dark:bg-white/[0.03] p-0.5 shrink-0">
-              {DEPTH_PRESETS.map((preset) => {
-                const isSelected = depth === preset.value;
-                return (
-                  <button
-                    key={preset.value}
-                    onClick={() => setDepth(preset.value)}
-                    className={clsx(
-                      'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all duration-150',
-                      isSelected
-                        ? 'bg-white dark:bg-white/[0.12] text-neutral-900 dark:text-white shadow-sm'
-                        : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
-                    )}
-                  >
-                    <preset.icon size={11} className={isSelected ? 'text-orange-500' : preset.color} />
-                    <span className="hidden sm:inline">{preset.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {/* Compact selectors */}
+            <div ref={menuContainerRef} className="relative flex items-center gap-1 shrink-0">
+              <div className="relative">
+                <button
+                  onClick={() => setOpenMenu((value) => (value === 'depth' ? null : 'depth'))}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-black/[0.08] dark:border-white/[0.09] bg-white/60 dark:bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-neutral-700 transition-colors hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white"
+                  title={TEXT_CONFIG.researchInput.researchModeTitle}
+                >
+                  <selectedDepthPreset.icon size={12} className="text-orange-500" />
+                  <span className="whitespace-nowrap">{selectedDepthPreset.label}</span>
+                  <ChevronDown size={12} className={clsx('transition-transform', openMenu === 'depth' && 'rotate-180')} />
+                </button>
 
-            {/* Divider */}
-            <div className="w-px h-5 bg-black/[0.06] dark:bg-white/[0.06] mx-1 shrink-0" />
+                <AnimatePresence>
+                  {openMenu === 'depth' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 6 }}
+                      transition={{ duration: 0.12 }}
+                      className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[150px] overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-lg shadow-black/10 dark:border-white/[0.08] dark:bg-neutral-900 dark:shadow-black/40"
+                    >
+                      {DEPTH_PRESETS.map((preset) => (
+                        <button
+                          key={preset.value}
+                          onClick={() => {
+                            setDepth(preset.value);
+                            setOpenMenu(null);
+                          }}
+                          className={clsx(
+                            'flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors',
+                            depth === preset.value
+                              ? 'bg-orange-50 text-neutral-900 dark:bg-orange-500/15 dark:text-white'
+                              : 'text-neutral-600 hover:bg-black/[0.03] dark:text-neutral-300 dark:hover:bg-white/[0.06]',
+                          )}
+                        >
+                          <preset.icon size={13} className={depth === preset.value ? 'text-orange-500' : preset.color} />
+                          {preset.label}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
-            {/* Inline model pills */}
-            <div className="flex items-center gap-0.5 rounded-lg bg-black/[0.03] dark:bg-white/[0.03] p-0.5 shrink-0">
-              {MODEL_PRESETS.map((model) => {
-                const isSelected = selectedModel === model.id;
-                return (
-                  <button
-                    key={model.id}
-                    onClick={() => setSelectedModel(model.id)}
-                    className={clsx(
-                      'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all duration-150',
-                      isSelected
-                        ? 'bg-white dark:bg-white/[0.12] text-neutral-900 dark:text-white shadow-sm'
-                        : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
-                    )}
-                  >
-                    <model.icon size={11} className={isSelected ? 'text-orange-500' : model.color} />
-                    <span className="hidden sm:inline">{model.label}</span>
-                  </button>
-                );
-              })}
+              <div className="w-px h-5 bg-black/[0.06] dark:bg-white/[0.06] shrink-0" />
+
+              <div className="relative">
+                <button
+                  onClick={() => setOpenMenu((value) => (value === 'model' ? null : 'model'))}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-black/[0.08] dark:border-white/[0.09] bg-white/60 dark:bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-neutral-700 transition-colors hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white"
+                  title={TEXT_CONFIG.researchInput.modelTitle}
+                >
+                  <selectedModelPreset.icon size={12} className="text-orange-500" />
+                  <span className="whitespace-nowrap">{selectedModelPreset.label}</span>
+                  <ChevronDown size={12} className={clsx('transition-transform', openMenu === 'model' && 'rotate-180')} />
+                </button>
+
+                <AnimatePresence>
+                  {openMenu === 'model' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 6 }}
+                      transition={{ duration: 0.12 }}
+                      className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[170px] overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-lg shadow-black/10 dark:border-white/[0.08] dark:bg-neutral-900 dark:shadow-black/40"
+                    >
+                      {MODEL_PRESETS.map((model) => (
+                        <button
+                          key={model.id}
+                          onClick={() => {
+                            setSelectedModel(model.id);
+                            setOpenMenu(null);
+                          }}
+                          className={clsx(
+                            'flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors',
+                            selectedModel === model.id
+                              ? 'bg-orange-50 text-neutral-900 dark:bg-orange-500/15 dark:text-white'
+                              : 'text-neutral-600 hover:bg-black/[0.03] dark:text-neutral-300 dark:hover:bg-white/[0.06]',
+                          )}
+                        >
+                          <model.icon size={13} className={selectedModel === model.id ? 'text-orange-500' : model.color} />
+                          {model.label}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
           </div>
 
@@ -442,7 +530,9 @@ export function ResearchInput({
               <ArrowUp size={16} strokeWidth={2.5} />
             )}
             <span className="hidden sm:inline">
-              {isLoading ? 'Starting…' : 'Research'}
+              {isLoading
+                ? TEXT_CONFIG.researchInput.submitStarting
+                : TEXT_CONFIG.researchInput.submitDefault}
             </span>
           </button>
         </div>
@@ -450,10 +540,11 @@ export function ResearchInput({
 
       {/* Keyboard hint */}
       <p className="mt-3 text-center text-[11px] text-neutral-400 dark:text-neutral-700">
-        Press <kbd className="px-1.5 py-0.5 rounded bg-black/[0.04] dark:bg-white/[0.04] font-mono text-[10px]">⌘</kbd>
+        {TEXT_CONFIG.researchInput.keyboardHintPrefix}{' '}
+        <kbd className="px-1.5 py-0.5 rounded bg-black/[0.04] dark:bg-white/[0.04] font-mono text-[10px]">⌘</kbd>
         <span className="mx-0.5">+</span>
         <kbd className="px-1.5 py-0.5 rounded bg-black/[0.04] dark:bg-white/[0.04] font-mono text-[10px]">Enter</kbd>
-        {' '}to submit
+        {' '}{TEXT_CONFIG.researchInput.keyboardHintSuffix}
       </p>
     </div>
   );

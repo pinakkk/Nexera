@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { listRuns, deleteRun } from '@/lib/api';
 import { RunStatus, RunStatusValue } from '@/lib/types';
+import { TEXT_CONFIG } from '@/lib/text-config';
 import {
   Clock,
   Search,
@@ -20,43 +21,35 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-/* ------------------------------------------------------------------ */
-/*  Status badge configuration                                         */
-/* ------------------------------------------------------------------ */
-
 const statusConfig: Record<
   RunStatusValue,
   { label: string; dotClass: string; chipClass: string; icon: typeof Clock }
 > = {
   pending: {
-    label: 'Pending',
+    label: TEXT_CONFIG.history.status.pending,
     dotClass: 'bg-neutral-400',
     chipClass: 'chip-neutral',
     icon: Clock,
   },
   running: {
-    label: 'Running',
+    label: TEXT_CONFIG.history.status.running,
     dotClass: 'bg-blue-400 animate-pulse',
     chipClass: 'chip-info',
     icon: Loader2,
   },
   completed: {
-    label: 'Completed',
+    label: TEXT_CONFIG.history.status.completed,
     dotClass: 'bg-emerald-400',
     chipClass: 'chip-success',
     icon: CheckCircle2,
   },
   failed: {
-    label: 'Failed',
+    label: TEXT_CONFIG.history.status.failed,
     dotClass: 'bg-red-400',
     chipClass: 'chip-error',
     icon: AlertTriangle,
   },
 };
-
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
 
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
@@ -71,7 +64,7 @@ function formatDate(iso: string): string {
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
 
-  if (diffMins < 1) return 'Just now';
+  if (diffMins < 1) return TEXT_CONFIG.history.justNow;
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
@@ -82,10 +75,6 @@ function formatDate(iso: string): string {
     year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
   });
 }
-
-/* ------------------------------------------------------------------ */
-/*  Loading skeleton                                                   */
-/* ------------------------------------------------------------------ */
 
 function SkeletonCard() {
   return (
@@ -102,10 +91,6 @@ function SkeletonCard() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Empty state                                                        */
-/* ------------------------------------------------------------------ */
-
 function EmptyState() {
   return (
     <motion.div
@@ -118,23 +103,18 @@ function EmptyState() {
         <Inbox size={32} strokeWidth={1.5} className="text-orange-500/60" />
       </div>
       <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-2">
-        No research runs yet
+        {TEXT_CONFIG.history.emptyTitle}
       </h3>
       <p className="text-sm text-neutral-500 text-center max-w-sm mb-8 leading-relaxed">
-        Start your first research query to see your runs appear here.
-        Each run will be tracked with its status, iterations, and results.
+        {TEXT_CONFIG.history.emptyDescription}
       </p>
       <Link href="/" className="btn-primary">
         <Sparkles size={16} />
-        Start Research
+        {TEXT_CONFIG.history.startResearch}
       </Link>
     </motion.div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  Delete confirmation dialog                                         */
-/* ------------------------------------------------------------------ */
 
 function DeleteDialog({
   run,
@@ -169,23 +149,23 @@ function DeleteDialog({
           </div>
           <div>
             <h3 className="text-base font-semibold text-neutral-900 dark:text-white">
-              Delete Run
+              {TEXT_CONFIG.history.deleteRunTitle}
             </h3>
-            <p className="text-xs text-neutral-500">This action cannot be undone</p>
+            <p className="text-xs text-neutral-500">{TEXT_CONFIG.history.deleteRunSubtitle}</p>
           </div>
         </div>
 
         <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-6 leading-relaxed">
-          Are you sure you want to delete{' '}
+          {TEXT_CONFIG.history.deleteRunPrompt}{' '}
           <span className="font-medium text-neutral-900 dark:text-white">
             &ldquo;{truncate(run.query, 60)}&rdquo;
           </span>
-          ? All associated data will be permanently removed.
+          .
         </p>
 
         <div className="flex items-center justify-end gap-3">
           <button onClick={onCancel} className="btn-ghost" disabled={isDeleting}>
-            Cancel
+            {TEXT_CONFIG.history.cancel}
           </button>
           <button onClick={onConfirm} className="btn-danger" disabled={isDeleting}>
             {isDeleting ? (
@@ -193,17 +173,13 @@ function DeleteDialog({
             ) : (
               <Trash2 size={14} />
             )}
-            {isDeleting ? 'Deleting…' : 'Delete'}
+            {isDeleting ? TEXT_CONFIG.history.deleting : TEXT_CONFIG.history.delete}
           </button>
         </div>
       </motion.div>
     </motion.div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  Run card                                                           */
-/* ------------------------------------------------------------------ */
 
 function RunCard({
   run,
@@ -229,32 +205,30 @@ function RunCard({
         href={`/runs/${run.run_id}`}
         className="group relative flex items-start gap-4 rounded-2xl glass-panel-solid p-4 hover:shadow-lg hover:shadow-black/[0.04] dark:hover:shadow-black/[0.2] hover:-translate-y-[1px] transition-all duration-300 sm:p-5"
       >
-        {/* Status icon */}
         <div
           className={`flex items-center justify-center w-10 h-10 rounded-xl shrink-0 ${run.status === 'completed'
-              ? 'bg-emerald-500/10 border border-emerald-500/20'
-              : run.status === 'running'
-                ? 'bg-blue-500/10 border border-blue-500/20'
-                : run.status === 'failed'
-                  ? 'bg-red-500/10 border border-red-500/20'
-                  : 'bg-neutral-500/10 border border-neutral-500/20'
+            ? 'bg-emerald-500/10 border border-emerald-500/20'
+            : run.status === 'running'
+              ? 'bg-blue-500/10 border border-blue-500/20'
+              : run.status === 'failed'
+                ? 'bg-red-500/10 border border-red-500/20'
+                : 'bg-neutral-500/10 border border-neutral-500/20'
             }`}
         >
           <StatusIcon
             size={16}
             strokeWidth={2}
             className={`${run.status === 'completed'
-                ? 'text-emerald-500'
-                : run.status === 'running'
-                  ? 'text-blue-500 animate-spin'
-                  : run.status === 'failed'
-                    ? 'text-red-500'
-                    : 'text-neutral-400'
+              ? 'text-emerald-500'
+              : run.status === 'running'
+                ? 'text-blue-500 animate-spin'
+                : run.status === 'failed'
+                  ? 'text-red-500'
+                  : 'text-neutral-400'
               }`}
           />
         </div>
 
-        {/* Content */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-neutral-900 dark:text-white truncate group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
             {truncate(run.query, 75)}
@@ -269,7 +243,8 @@ function RunCard({
             </span>
             {run.iteration > 0 && (
               <span className="text-[11px] text-neutral-500">
-                {run.iteration}{run.max_iterations > 0 ? `/${run.max_iterations}` : ''} iter
+                {run.iteration}
+                {run.max_iterations > 0 ? `/${run.max_iterations}` : ''} iter
               </span>
             )}
             <span className="text-[11px] text-neutral-400 dark:text-neutral-600">
@@ -278,7 +253,6 @@ function RunCard({
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={(e) => {
@@ -287,7 +261,7 @@ function RunCard({
               onDelete(run);
             }}
             className="opacity-0 group-hover:opacity-100 flex items-center justify-center w-8 h-8 rounded-lg text-neutral-400 hover:text-red-500 hover:bg-red-500/[0.08] transition-all duration-200"
-            title="Delete run"
+            title={TEXT_CONFIG.history.deleteRunButtonTitle}
           >
             <Trash2 size={14} />
           </button>
@@ -301,10 +275,6 @@ function RunCard({
     </motion.div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  Page Component                                                     */
-/* ------------------------------------------------------------------ */
 
 export default function HistoryPage() {
   const [runs, setRuns] = useState<RunStatus[]>([]);
@@ -322,9 +292,7 @@ export default function HistoryPage() {
       setRuns(data);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to load research history.',
+        err instanceof Error ? err.message : TEXT_CONFIG.history.loadFailed,
       );
     } finally {
       setIsLoading(false);
@@ -335,23 +303,20 @@ export default function HistoryPage() {
     fetchRuns();
   }, [fetchRuns]);
 
-  const handleDelete = useCallback(
-    async (run: RunStatus) => {
-      setIsDeleting(true);
-      try {
-        await deleteRun(run.run_id);
-        setRuns((prev) => prev.filter((r) => r.run_id !== run.run_id));
-        setDeleteTarget(null);
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : 'Failed to delete run.',
-        );
-      } finally {
-        setIsDeleting(false);
-      }
-    },
-    [],
-  );
+  const handleDelete = useCallback(async (run: RunStatus) => {
+    setIsDeleting(true);
+    try {
+      await deleteRun(run.run_id);
+      setRuns((prev) => prev.filter((r) => r.run_id !== run.run_id));
+      setDeleteTarget(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : TEXT_CONFIG.history.deleteFailed,
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  }, []);
 
   const filteredRuns = searchFilter
     ? runs.filter((r) =>
@@ -361,7 +326,6 @@ export default function HistoryPage() {
 
   return (
     <div className="flex min-h-screen flex-col px-3 pb-8 pt-16 sm:px-8 sm:pt-8">
-      {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -373,15 +337,12 @@ export default function HistoryPage() {
             <Clock size={17} strokeWidth={1.75} className="text-neutral-600 dark:text-neutral-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-neutral-900 dark:text-white">Research History</h1>
-            <p className="text-xs text-neutral-500 dark:text-neutral-600">
-              Browse and revisit past research runs
-            </p>
+            <h1 className="text-xl font-bold text-neutral-900 dark:text-white">{TEXT_CONFIG.history.title}</h1>
+            <p className="text-xs text-neutral-500 dark:text-neutral-600">{TEXT_CONFIG.history.subtitle}</p>
           </div>
         </div>
       </motion.div>
 
-      {/* Toolbar */}
       <motion.div
         initial={{ opacity: 0, y: -5 }}
         animate={{ opacity: 1, y: 0 }}
@@ -396,7 +357,7 @@ export default function HistoryPage() {
           />
           <input
             type="text"
-            placeholder="Filter by query…"
+            placeholder={TEXT_CONFIG.history.filterPlaceholder}
             value={searchFilter}
             onChange={(e) => setSearchFilter(e.target.value)}
             className="glass-input pl-9 pr-4"
@@ -415,18 +376,17 @@ export default function HistoryPage() {
           onClick={fetchRuns}
           disabled={isLoading}
           className="btn-secondary"
-          title="Refresh"
+          title={TEXT_CONFIG.history.refreshTitle}
         >
           <RefreshCw
             size={14}
             strokeWidth={2}
             className={isLoading ? 'animate-spin' : ''}
           />
-          Refresh
+          {TEXT_CONFIG.history.refresh}
         </button>
       </motion.div>
 
-      {/* Error banner */}
       <AnimatePresence>
         {error && (
           <motion.div
@@ -447,7 +407,6 @@ export default function HistoryPage() {
         )}
       </AnimatePresence>
 
-      {/* Content */}
       <div className="flex-1">
         {isLoading ? (
           <div className="space-y-3">
@@ -465,7 +424,7 @@ export default function HistoryPage() {
           >
             <Search size={28} strokeWidth={1.5} className="text-neutral-300 dark:text-neutral-700 mb-3" />
             <p className="text-sm text-neutral-500">
-              No runs match &ldquo;{searchFilter}&rdquo;
+              {TEXT_CONFIG.history.noRunsMatchPrefix} &ldquo;{searchFilter}&rdquo;
             </p>
           </motion.div>
         ) : (
@@ -484,7 +443,6 @@ export default function HistoryPage() {
         )}
       </div>
 
-      {/* Delete confirmation dialog */}
       <AnimatePresence>
         {deleteTarget && (
           <DeleteDialog

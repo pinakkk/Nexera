@@ -13,6 +13,7 @@ import {
   Share2,
   BookOpen,
 } from 'lucide-react';
+import { TEXT_CONFIG } from '@/lib/text-config';
 
 /* ------------------------------------------------------------------ */
 /*  Feature cards                                                       */
@@ -21,53 +22,42 @@ import {
 const features = [
   {
     icon: Layers,
-    title: 'Organize Research',
-    description: 'Group related runs into projects for easier navigation and context.',
     gradient: 'from-orange-500/10 to-amber-500/5',
     iconColor: 'text-orange-500',
     borderColor: 'border-orange-500/15',
   },
   {
     icon: Tag,
-    title: 'Tags & Labels',
-    description: 'Categorize projects with custom tags to quickly find what you need.',
     gradient: 'from-sky-500/10 to-blue-500/5',
     iconColor: 'text-sky-500',
     borderColor: 'border-sky-500/15',
   },
   {
     icon: BarChart3,
-    title: 'Project Insights',
-    description: 'Track research progress with aggregated metrics and timelines.',
     gradient: 'from-emerald-500/10 to-green-500/5',
     iconColor: 'text-emerald-500',
     borderColor: 'border-emerald-500/15',
   },
   {
     icon: GitBranch,
-    title: 'Version History',
-    description: 'Track iterations and compare report versions over time.',
     gradient: 'from-purple-500/10 to-violet-500/5',
     iconColor: 'text-purple-500',
     borderColor: 'border-purple-500/15',
   },
   {
     icon: Share2,
-    title: 'Collaboration',
-    description: 'Share projects and research with team members.',
     gradient: 'from-pink-500/10 to-rose-500/5',
     iconColor: 'text-pink-500',
     borderColor: 'border-pink-500/15',
   },
   {
     icon: BookOpen,
-    title: 'Knowledge Base',
-    description: 'Build a structured knowledge base from all your research.',
     gradient: 'from-cyan-500/10 to-teal-500/5',
     iconColor: 'text-cyan-500',
     borderColor: 'border-cyan-500/15',
   },
 ];
+const featureText = TEXT_CONFIG.projects.features;
 
 /* ------------------------------------------------------------------ */
 /*  Page Component                                                     */
@@ -88,9 +78,11 @@ export default function ProjectsPage() {
             <FolderOpen size={17} strokeWidth={1.75} className="text-neutral-600 dark:text-neutral-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-neutral-900 dark:text-white">Projects</h1>
+            <h1 className="text-xl font-bold text-neutral-900 dark:text-white">
+              {TEXT_CONFIG.projects.title}
+            </h1>
             <p className="text-xs text-neutral-500 dark:text-neutral-600">
-              Organize your research into collections
+              {TEXT_CONFIG.projects.subtitle}
             </p>
           </div>
         </div>
@@ -120,17 +112,15 @@ export default function ProjectsPage() {
               </motion.div>
 
               <h2 className="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white mb-3 h-display">
-                Coming Soon
+                {TEXT_CONFIG.projects.heroTitle}
               </h2>
               <p className="text-neutral-600 dark:text-neutral-400 text-sm sm:text-base leading-relaxed max-w-lg mx-auto mb-8">
-                Projects will let you organize research runs into named
-                collections, making it easy to revisit related findings, share
-                context across runs, and build a structured knowledge base.
+                {TEXT_CONFIG.projects.heroDescription}
               </p>
 
               <div className="chip-accent pulse-glow inline-flex">
                 <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-                Under Development
+                {TEXT_CONFIG.projects.underDevelopment}
               </div>
             </div>
           </motion.div>
@@ -139,7 +129,7 @@ export default function ProjectsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
             {features.map((feature, index) => (
               <motion.div
-                key={feature.title}
+                key={featureText[index]?.title ?? String(index)}
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.2 + index * 0.06 }}
@@ -153,10 +143,10 @@ export default function ProjectsPage() {
                   />
                 </div>
                 <h3 className="text-sm font-bold text-neutral-900 dark:text-white mb-1.5">
-                  {feature.title}
+                  {featureText[index]?.title ?? ''}
                 </h3>
                 <p className="text-xs text-neutral-600 dark:text-neutral-500 leading-relaxed">
-                  {feature.description}
+                  {featureText[index]?.description ?? ''}
                 </p>
               </motion.div>
             ))}
@@ -171,15 +161,15 @@ export default function ProjectsPage() {
           >
             <div>
               <p className="text-sm font-semibold text-neutral-900 dark:text-white">
-                Start a new research run
+                {TEXT_CONFIG.projects.ctaTitle}
               </p>
               <p className="text-xs text-neutral-500 dark:text-neutral-600 mt-1">
-                Your runs will be automatically available for projects once launched.
+                {TEXT_CONFIG.projects.ctaDescription}
               </p>
             </div>
             <Link href="/" className="btn-primary shrink-0">
               <Sparkles size={16} />
-              New Research
+              {TEXT_CONFIG.projects.ctaButton}
               <ArrowRight size={14} />
             </Link>
           </motion.div>

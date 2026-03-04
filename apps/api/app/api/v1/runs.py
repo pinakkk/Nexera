@@ -199,6 +199,19 @@ class UserInputResponse(BaseModel):
     message: str
 
 
+class SteeringInputRequest(BaseModel):
+    """Request body for non-blocking steering updates during a run."""
+
+    message: str = Field(..., min_length=1, max_length=1000)
+
+
+class SteeringInputResponse(BaseModel):
+    """Response after queuing steering input."""
+
+    queued: bool
+    message: str
+
+
 # ---------------------------------------------------------------------------
 # Background orchestrator helpers
 # ---------------------------------------------------------------------------
@@ -219,7 +232,11 @@ async def _run_orchestrator(
     4. For FULL_RESEARCH: run full orchestrator pipeline
     """
     from app.config import get_settings
-    from app.services.orchestrator import Orchestrator
+    from app.services.orchestrator import (
+        Orchestrator,
+        cleanup_steering_channel,
+        register_steering_channel,
+    )
     from app.services.research_gate import classify_query, generate_quick_response, FULL_RESEARCH
     from app.services.safety_guard import SafetyGuardService
     from app.services.llm import get_llm_service
@@ -227,12 +244,17 @@ async def _run_orchestrator(
 
     store: MongoStore | None = None
     try:
+        register_steering_channel(run_id)
         store = get_mongo_store()
         increment_counter("active_runs")
         settings = get_settings()
         llm = get_llm_service(settings)
 
-        async def event_cb(state: str, message: str, payload: dict[str, Any]) -> None:
+        async def _broadcast_only_cb(
+            state: str,
+            message: str,
+            payload: dict[str, Any],
+        ) -> None:
             await broadcast_event(
                 run_id,
                 {
@@ -243,10 +265,37 @@ async def _run_orchestrator(
                 },
             )
 
+        async def _emit_external_event(
+            state: str,
+            message: str,
+            payload: dict[str, Any],
+        ) -> None:
+            try:
+                await store.append_event(
+                    event_id=str(uuid.uuid4()),
+                    run_id=run_id,
+                    state=state,
+                    message=message,
+                    payload=payload,
+                    timestamp=datetime.now(timezone.utc),
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to persist external event for run %s (%s)",
+                    run_id,
+                    state,
+                    exc_info=True,
+                )
+            await _broadcast_only_cb(state, message, payload)
+
         # ── Step 1: Safety Guard ──────────────────────────────────────────
         safety = SafetyGuardService()
         safety_result = await safety.guard_prompt(query, llm)
-        await event_cb("prompt_guard", f"Prompt guard: safe={safety_result['safe']}", safety_result)
+        await _emit_external_event(
+            "prompt_guard",
+            f"Prompt guard: safe={safety_result['safe']}",
+            safety_result,
+        )
 
         if not safety_result.get("safe", True):
             await store.update_run_final(
@@ -255,7 +304,11 @@ async def _run_orchestrator(
                 report_json={}, scores_json={}, citations=[],
                 model_name=None, iteration_count=0,
             )
-            await event_cb("failed", "Request blocked by safety guard", safety_result)
+            await _emit_external_event(
+                "failed",
+                "Request blocked by safety guard",
+                safety_result,
+            )
             increment_counter("failed_runs")
             return
 
@@ -264,7 +317,7 @@ async def _run_orchestrator(
         if getattr(settings, "RESEARCH_GATE_ENABLED", True):
             gate_result = await classify_query(query, llm)
 
-        await event_cb(
+        await _emit_external_event(
             "research_gate",
             f"Gate decision: {gate_result['route']}",
             {"gate_result": gate_result},
@@ -280,7 +333,7 @@ async def _run_orchestrator(
                 scores_json={"gate": gate_result},
                 citations=[], model_name=llm.fast_model, iteration_count=0,
             )
-            await event_cb(
+            await _emit_external_event(
                 "finalize",
                 f"Quick response ({gate_result['route']})",
                 {"report_md": quick_response, "gate_route": gate_result["route"]},
@@ -303,7 +356,7 @@ async def _run_orchestrator(
             run_id=uuid.UUID(run_id),
             query=query,
             constraints=merged_constraints,
-            event_callback=event_cb,
+            event_callback=_broadcast_only_cb,
         )
 
         # ── Step 5: Generate PDF if report completed ─────────────────────
@@ -314,7 +367,11 @@ async def _run_orchestrator(
                     run_id=run_id,
                 )
                 if pdf_path:
-                    await event_cb("pdf_generated", f"PDF saved: {pdf_path.name}", {"pdf_url": f"/v1/runs/{run_id}/pdf"})
+                    await _emit_external_event(
+                        "pdf_generated",
+                        f"PDF saved: {pdf_path.name}",
+                        {"pdf_url": f"/v1/runs/{run_id}/pdf"},
+                    )
             except Exception as pdf_exc:
                 logger.warning("PDF generation failed for run %s: %s", run_id, pdf_exc)
 
@@ -348,6 +405,7 @@ async def _run_orchestrator(
             },
         )
     finally:
+        cleanup_steering_channel(run_id)
         decrement_counter("active_runs")
 
 
@@ -387,6 +445,9 @@ async def create_run(body: RunCreateRequest) -> RunCreateResponse:
     )
 
     increment_counter("total_runs")
+
+    from app.services.orchestrator import register_steering_channel
+    register_steering_channel(run_id)
 
     asyncio.create_task(
         _run_orchestrator(
@@ -445,6 +506,70 @@ async def submit_user_input(run_id: str, body: UserInputRequest) -> UserInputRes
     return UserInputResponse(
         accepted=False,
         message="Run is not waiting for user input (may have already proceeded)",
+    )
+
+
+@router.post("/{run_id}/steering", response_model=SteeringInputResponse)
+async def submit_steering_input(
+    run_id: str,
+    body: SteeringInputRequest,
+) -> SteeringInputResponse:
+    """Queue non-blocking steering context for the next reasoning checkpoint."""
+    from app.services.orchestrator import submit_steering_input as queue_steering_input
+
+    run_id = _canonical_uuid(run_id)
+    store = _get_store_or_503()
+
+    run_row = await _db_or_503("read run status", store.get_run(run_id))
+    if run_row is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    run_status = str(run_row.get("status", "")).lower()
+    if run_status in {"completed", "failed"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Run is already finished; steering can only be added while running.",
+        )
+
+    note = body.message.strip()
+    queued = queue_steering_input(
+        run_id,
+        {
+            "message": note,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    if not queued:
+        return SteeringInputResponse(
+            queued=False,
+            message="Run is not active for steering yet. Try again in a moment.",
+        )
+
+    event_payload = {"message": note}
+    await _db_or_503(
+        "persist steering event",
+        store.append_event(
+            event_id=str(uuid.uuid4()),
+            run_id=run_id,
+            state="steering_queued",
+            message="User added steering context",
+            payload=event_payload,
+            timestamp=datetime.now(timezone.utc),
+        ),
+    )
+    await broadcast_event(
+        run_id,
+        {
+            "run_id": run_id,
+            "state": "steering_queued",
+            "message": "User added steering context",
+            "payload": event_payload,
+        },
+    )
+
+    return SteeringInputResponse(
+        queued=True,
+        message="Steering note queued. It will be applied in the next reasoning step.",
     )
 
 

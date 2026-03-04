@@ -1,44 +1,13 @@
 /* ------------------------------------------------------------------ */
 /*  Core types for the Research Agent frontend                        */
 /* ------------------------------------------------------------------ */
+import { TEXT_CONFIG } from './text-config';
 
 export type AgentState = string;
 
 /** Human-readable labels for the common backend states */
-export const AgentStateLabels: Record<string, string> = {
-  intake: 'Understanding Prompt',
-  plan: 'Planning',
-  plan_complete: 'Planning Completed',
-  query_generate: 'Generating Queries',
-  queries_generated: 'Queries Ready',
-  search: 'Searching',
-  search_complete: 'Search Completed',
-  fetch_parse: 'Fetching Pages',
-  fetch_complete: 'Fetch Completed',
-  index: 'Indexing',
-  index_complete: 'Indexing Completed',
-  retrieve: 'Retrieving Evidence',
-  retrieve_complete: 'Evidence Ready',
-  synthesize: 'Writing Response',
-  synthesize_complete: 'Draft Completed',
-  evaluate: 'Evaluating',
-  evaluate_complete: 'Evaluation Completed',
-  refine: 'Refining',
-  refine_complete: 'Refinement Completed',
-  max_iterations_reached: 'Iteration Limit Reached',
-  finalize: 'Completed',
-  failed: 'Failed',
-  error: 'Error',
-  // ── New hierarchical agent states ─────────────────────────────
-  research_gate: 'Classifying Query',
-  prompt_guard: 'Safety Check',
-  complexity_scored: 'Scoring Complexity',
-  evidence_packed: 'Packing Evidence',
-  evaluation_complete: 'Quality Check',
-  verification_started: 'Verifying',
-  verification_complete: 'Verification Done',
-  pdf_generated: 'PDF Ready',
-};
+export const AgentStateLabels: Record<string, string> =
+  TEXT_CONFIG.agentStateLabels;
 
 export function formatAgentStateLabel(state: string): string {
   if (AgentStateLabels[state]) return AgentStateLabels[state];

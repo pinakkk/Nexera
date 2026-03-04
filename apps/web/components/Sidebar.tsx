@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -15,21 +16,21 @@ import {
   Sun,
   Search,
   X,
-  Sparkles,
 } from 'lucide-react';
 import { useTheme } from './theme';
 import { listRuns } from '@/lib/api';
 import type { RunStatus } from '@/lib/types';
+import { TEXT_CONFIG } from '@/lib/text-config';
 
 /* ------------------------------------------------------------------ */
 /*  Nav configuration                                                  */
 /* ------------------------------------------------------------------ */
 
 const NAV_ITEMS = [
-  { href: '/', icon: Plus, label: 'New Research', id: 'nav-new' },
-  { href: '/history', icon: Clock, label: 'History', id: 'nav-history' },
-  { href: '/projects', icon: FolderOpen, label: 'Projects', id: 'nav-projects' },
-  { href: '/settings', icon: Settings, label: 'Settings', id: 'nav-settings' },
+  { href: '/', icon: Plus, label: TEXT_CONFIG.sidebar.nav.newResearch, id: 'nav-new' },
+  { href: '/history', icon: Clock, label: TEXT_CONFIG.sidebar.nav.history, id: 'nav-history' },
+  { href: '/projects', icon: FolderOpen, label: TEXT_CONFIG.sidebar.nav.projects, id: 'nav-projects' },
+  { href: '/settings', icon: Settings, label: TEXT_CONFIG.sidebar.nav.settings, id: 'nav-settings' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -51,6 +52,8 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const sidebarLogoSrc =
+    theme === 'dark' ? '/assets/darksqaure.png' : '/assets/square.png';
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [recentRuns, setRecentRuns] = useState<RunStatus[]>([]);
@@ -76,9 +79,15 @@ export function Sidebar({
     <div className="flex h-full flex-col">
       {/* Logo / Brand */}
       <div className="flex items-center pl-[13px] pt-5 pb-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 shadow-md shadow-orange-500/20">
-          <Sparkles size={16} className="text-white" strokeWidth={2.5} />
-        </div>
+        <Image
+          key={sidebarLogoSrc}
+          src={sidebarLogoSrc}
+          alt="Nexara"
+          width={36}
+          height={36}
+          className="h-9 w-9 shrink-0 object-contain drop-shadow-[0_1px_4px_rgba(251,146,60,0.18)] dark:drop-shadow-[0_1px_8px_rgba(248,250,252,0.14)]"
+          priority
+        />
       </div>
 
       {/* Divider */}
@@ -143,7 +152,7 @@ export function Sidebar({
             className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-500 dark:text-neutral-500 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] hover:text-neutral-700 dark:hover:text-neutral-300 transition-all"
           >
             <Search size={18} strokeWidth={1.75} className="shrink-0 group-hover:scale-105 transition-transform" />
-            <span className="whitespace-nowrap pl-3">Search Runs</span>
+            <span className="whitespace-nowrap pl-3">{TEXT_CONFIG.sidebar.searchRuns}</span>
           </button>
         )}
 
@@ -166,7 +175,7 @@ export function Sidebar({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Filter runs..."
+                  placeholder={TEXT_CONFIG.sidebar.filterRunsPlaceholder}
                   autoFocus
                   className="glass-input pl-8 pr-8 py-2 text-xs !rounded-lg"
                 />
@@ -200,7 +209,7 @@ export function Sidebar({
                 ))}
                 {filteredRuns.length === 0 && (
                   <p className="px-3 py-2 text-[11px] text-neutral-400">
-                    No runs found
+                    {TEXT_CONFIG.sidebar.noRunsFound}
                   </p>
                 )}
               </div>
@@ -231,7 +240,9 @@ export function Sidebar({
                 transition={{ duration: 0.2, ease: 'easeInOut' }}
                 className="overflow-hidden whitespace-nowrap pl-3"
               >
-                {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                {theme === 'dark'
+                  ? TEXT_CONFIG.sidebar.lightMode
+                  : TEXT_CONFIG.sidebar.darkMode}
               </motion.span>
             )}
           </AnimatePresence>
@@ -257,7 +268,7 @@ export function Sidebar({
                 transition={{ duration: 0.2, ease: 'easeInOut' }}
                 className="overflow-hidden whitespace-nowrap pl-3"
               >
-                Collapse
+                {TEXT_CONFIG.sidebar.collapse}
               </motion.span>
             )}
           </AnimatePresence>
@@ -302,7 +313,7 @@ export function Sidebar({
               <button
                 onClick={onCloseMobile}
                 className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
-                aria-label="Close menu"
+                aria-label={TEXT_CONFIG.sidebar.closeMenuAriaLabel}
               >
                 <X size={16} />
               </button>

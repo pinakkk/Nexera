@@ -6,6 +6,7 @@ import { Citation, Source, EvaluationScores } from '@/lib/types';
 import { SourcesPanel } from './SourcesPanel';
 import { Download, FileText, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { TEXT_CONFIG } from '@/lib/text-config';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -39,7 +40,7 @@ export function ReportViewer({
       <div className="flex flex-col items-center justify-center h-64 gap-3">
         <div className="w-6 h-6 border-2 border-neutral-300 dark:border-neutral-700 border-t-neutral-500 dark:border-t-neutral-400 rounded-full animate-spin" />
         <p className="text-sm text-neutral-600 dark:text-neutral-500">
-          Researching and writing report...
+          {TEXT_CONFIG.reportViewer.runningMessage}
         </p>
       </div>
     );
@@ -48,7 +49,9 @@ export function ReportViewer({
   if (!reportMd) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-sm text-neutral-600 dark:text-neutral-500">No report available yet.</p>
+        <p className="text-sm text-neutral-600 dark:text-neutral-500">
+          {TEXT_CONFIG.reportViewer.noReport}
+        </p>
       </div>
     );
   }
@@ -72,7 +75,7 @@ export function ReportViewer({
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('PDF download error:', err);
-      alert('PDF download failed. The report may still be generating.');
+      alert(TEXT_CONFIG.reportViewer.pdfDownloadFailed);
     } finally {
       setIsDownloading(false);
     }
@@ -94,12 +97,12 @@ export function ReportViewer({
             {isDownloading ? (
               <>
                 <Loader2 size={14} className="animate-spin" />
-                Generating PDF...
+                {TEXT_CONFIG.reportViewer.generatingPdf}
               </>
             ) : (
               <>
                 <Download size={14} />
-                Download PDF
+                {TEXT_CONFIG.reportViewer.downloadPdf}
               </>
             )}
           </button>
@@ -179,11 +182,11 @@ export function ReportViewer({
 
 function EvaluationBar({ scores }: { scores: EvaluationScores }) {
   const entries = [
-    { label: 'Coverage', value: scores.coverage },
-    { label: 'Accuracy', value: scores.accuracy },
-    { label: 'Coherence', value: scores.coherence },
-    { label: 'Citations', value: scores.citation_quality },
-    { label: 'Overall', value: scores.overall },
+    { label: TEXT_CONFIG.reportViewer.scoreCoverage, value: scores.coverage },
+    { label: TEXT_CONFIG.reportViewer.scoreAccuracy, value: scores.accuracy },
+    { label: TEXT_CONFIG.reportViewer.scoreCoherence, value: scores.coherence },
+    { label: TEXT_CONFIG.reportViewer.scoreCitations, value: scores.citation_quality },
+    { label: TEXT_CONFIG.reportViewer.scoreOverall, value: scores.overall },
   ];
 
   // Don't show bar if all scores are 0
@@ -192,7 +195,9 @@ function EvaluationBar({ scores }: { scores: EvaluationScores }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-black/[0.06] bg-white/80 p-3 dark:border-white/[0.06] dark:bg-[#111]/80 sm:gap-3 sm:p-4 backdrop-blur-sm flex-1">
-      <span className="w-full text-xs font-medium text-neutral-500 sm:w-auto">Quality Scores</span>
+      <span className="w-full text-xs font-medium text-neutral-500 sm:w-auto">
+        {TEXT_CONFIG.reportViewer.qualityScores}
+      </span>
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         {entries.map((entry) => (
           <div key={entry.label} className="flex items-center gap-1.5">

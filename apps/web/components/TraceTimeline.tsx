@@ -20,6 +20,7 @@ import {
   FileText,
   Zap,
 } from 'lucide-react';
+import { TEXT_CONFIG } from '@/lib/text-config';
 
 /* ── States to HIDE from the trace (internal/non-interactive) ──────── */
 
@@ -59,79 +60,103 @@ function friendlyMessage(event: RunEvent): string {
   // Research gate — show the route decision
   if (state === 'research_gate') {
     const route = (payload as any)?.gate_result?.route;
-    if (route === 'CHAT_ONLY') return 'Quick chat response — no research needed';
-    if (route === 'DIRECT_ANSWER') return 'Direct answer — no deep research needed';
-    if (route === 'LIGHT_LOOKUP') return 'Light lookup mode';
-    if (route === 'FULL_RESEARCH') return 'Starting full research pipeline';
-    return event.message || 'Classifying query...';
+    if (route === 'CHAT_ONLY') return TEXT_CONFIG.traceTimeline.routeQuickChat;
+    if (route === 'DIRECT_ANSWER') return TEXT_CONFIG.traceTimeline.routeDirectAnswer;
+    if (route === 'LIGHT_LOOKUP') return TEXT_CONFIG.traceTimeline.routeLightLookup;
+    if (route === 'FULL_RESEARCH') return TEXT_CONFIG.traceTimeline.routeFullResearch;
+    return event.message || TEXT_CONFIG.traceTimeline.routeClassifying;
   }
 
   // Plan
   if (state.includes('plan_complete') || state.includes('plan')) {
     const subQs = (payload as any)?.plan?.sub_questions;
     if (Array.isArray(subQs) && subQs.length > 0) {
-      return `Created ${subQs.length} research sub-questions`;
+      return `${TEXT_CONFIG.traceTimeline.planCreatedPrefix} ${subQs.length} ${TEXT_CONFIG.traceTimeline.planCreatedSuffix}`;
     }
   }
 
   // Search
   if (state.includes('search_complete')) {
     const count = (payload as any)?.result_count;
-    if (typeof count === 'number') return `Found ${count} search results`;
+    if (typeof count === 'number') {
+      return `${TEXT_CONFIG.traceTimeline.searchFoundPrefix} ${count} ${TEXT_CONFIG.traceTimeline.searchFoundSuffix}`;
+    }
   }
 
   // Fetch
   if (state.includes('fetch_complete')) {
     const fetched = (payload as any)?.fetched_count;
     const total = (payload as any)?.total_urls;
-    if (typeof fetched === 'number') return `Fetched ${fetched}/${total || '?'} pages`;
+    if (typeof fetched === 'number') {
+      return `${TEXT_CONFIG.traceTimeline.fetchedPrefix} ${fetched}/${total || '?'} ${TEXT_CONFIG.traceTimeline.fetchedSuffix}`;
+    }
   }
 
   // Index
   if (state.includes('index_complete')) {
     const chunks = (payload as any)?.total_chunks;
-    if (typeof chunks === 'number') return `Indexed ${chunks} content chunks`;
+    if (typeof chunks === 'number') {
+      return `${TEXT_CONFIG.traceTimeline.indexedPrefix} ${chunks} ${TEXT_CONFIG.traceTimeline.indexedSuffix}`;
+    }
   }
 
   // Retrieve
   if (state.includes('retrieve_complete')) {
     const count = (payload as any)?.evidence_count;
-    if (typeof count === 'number') return `Retrieved ${count} evidence pieces`;
+    if (typeof count === 'number') {
+      return `${TEXT_CONFIG.traceTimeline.retrievedPrefix} ${count} ${TEXT_CONFIG.traceTimeline.retrievedSuffix}`;
+    }
   }
 
   // Synthesize
   if (state.includes('synth')) {
     const len = (payload as any)?.report_length;
-    if (typeof len === 'number') return `Report written (${Math.round(len / 1000)}k chars)`;
-    return 'Writing research report...';
+    if (typeof len === 'number') {
+      return `${TEXT_CONFIG.traceTimeline.reportWrittenPrefix} (${Math.round(len / 1000)}k chars)`;
+    }
+    return TEXT_CONFIG.traceTimeline.reportWriting;
   }
 
   // Verification
   if (state.includes('verification_complete')) {
     const passed = (payload as any)?.overall_passed;
-    return passed ? '✅ Report passed quality checks' : '⚠️ Report needs refinement';
+    return passed
+      ? TEXT_CONFIG.traceTimeline.reportPassed
+      : TEXT_CONFIG.traceTimeline.reportNeedsRefine;
   }
 
   // Refine
   if (state.includes('refine')) {
-    return 'Refining report based on evaluation feedback';
+    return TEXT_CONFIG.traceTimeline.refiningReport;
   }
 
   // Finalize
   if (state.includes('final')) {
-    return '🎉 Research complete!';
+    return TEXT_CONFIG.traceTimeline.researchComplete;
   }
 
   // PDF
   if (state === 'pdf_generated') {
-    return '📄 PDF report generated';
+    return TEXT_CONFIG.traceTimeline.pdfGenerated;
+  }
+
+  if (state === 'steering_queued') {
+    return TEXT_CONFIG.traceTimeline.steeringQueued;
+  }
+
+  if (state === 'steering_applied') {
+    const count = (payload as any)?.notes_count;
+    if (typeof count === 'number') {
+      return `${TEXT_CONFIG.traceTimeline.steeringAppliedPrefix} ${count} ${TEXT_CONFIG.traceTimeline.steeringAppliedSuffix}`;
+    }
+    return TEXT_CONFIG.traceTimeline.steeringAppliedGeneric;
   }
 
   // Failed
   if (state.includes('fail') || state.includes('error')) {
     const err = (payload as any)?.error;
     if (typeof err === 'string') return err.slice(0, 120);
-    return event.message || 'An error occurred';
+    return event.message || TEXT_CONFIG.traceTimeline.defaultError;
   }
 
   return event.message || '';
@@ -158,20 +183,21 @@ function stateIcon(state: string): React.ElementType {
   if (state.includes('refine')) return RefreshCw;
   if (state.includes('final')) return CheckCircle2;
   if (state.includes('pdf')) return FileText;
+  if (state.includes('steer')) return Compass;
   if (state.includes('transcri')) return Mic;
   if (state.includes('fail') || state.includes('error')) return AlertCircle;
   return Zap;
 }
 
 function stateColor(state: string, isActive: boolean): string {
-  if (isActive) return 'border-blue-400/40 bg-blue-500/10 text-blue-500 dark:text-blue-300';
+  if (isActive) return 'bg-blue-500/12 text-blue-500 dark:text-blue-300';
   if (state.includes('fail') || state.includes('error'))
-    return 'border-red-400/40 bg-red-500/10 text-red-500 dark:text-red-300';
+    return 'bg-red-500/12 text-red-500 dark:text-red-300';
   if (state.includes('final') || state.includes('pdf'))
-    return 'border-emerald-400/40 bg-emerald-500/10 text-emerald-500 dark:text-emerald-300';
+    return 'bg-emerald-500/12 text-emerald-500 dark:text-emerald-300';
   if (state.includes('gate'))
-    return 'border-purple-400/40 bg-purple-500/10 text-purple-500 dark:text-purple-300';
-  return 'border-black/10 bg-white text-neutral-600 dark:border-white/10 dark:bg-[#141414] dark:text-neutral-300';
+    return 'bg-purple-500/12 text-purple-500 dark:text-purple-300';
+  return 'bg-black/[0.04] text-neutral-600 dark:bg-white/[0.06] dark:text-neutral-300';
 }
 
 /* ── Component ─────────────────────────────────────────────────────── */
@@ -183,7 +209,7 @@ export function TraceTimeline({ events, activeState }: TraceTimelineProps) {
   if (visibleEvents.length === 0) {
     return (
       <div className="flex h-40 items-center justify-center text-sm text-neutral-500 dark:text-neutral-400">
-        Waiting for live events...
+        {TEXT_CONFIG.traceTimeline.waitingForEvents}
       </div>
     );
   }
@@ -200,7 +226,7 @@ export function TraceTimeline({ events, activeState }: TraceTimelineProps) {
           <div key={event.id} className="trace-item flex gap-3">
             <div className="flex flex-col items-center">
               <div
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${stateColor(event.state, isActive)}`}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${stateColor(event.state, isActive)}`}
               >
                 <Icon
                   size={14}

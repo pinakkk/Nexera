@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from app.config import get_settings
 
@@ -59,6 +59,12 @@ def describe_mongo_error(exc: Exception) -> str:
     if "authentication failed" in lower or "bad auth" in lower:
         return "MongoDB authentication failed. Verify credentials in DATABASE_URL."
 
+    if "certificate verify failed" in lower or "tlsv1 alert unknown ca" in lower:
+        return (
+            "MongoDB TLS certificate verification failed. Ensure your Python trust "
+            "store is installed, or use certifi-backed CA bundle configuration."
+        )
+
     if ("access list" in lower or "whitelist" in lower) and "ip" in lower:
         return (
             "MongoDB Atlas network access blocked this client IP. Add your current "
@@ -80,6 +86,44 @@ def _extract_db_name(uri: str) -> str:
     parsed = urlparse(uri)
     name = parsed.path.lstrip("/").strip()
     return name or "nexera"
+
+
+def _is_truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_falsy(value: str) -> bool:
+    return value.strip().lower() in {"0", "false", "no", "off"}
+
+
+def _resolve_tls_ca_file(uri: str) -> str | None:
+    parsed = urlparse(uri)
+    if parsed.scheme not in {"mongodb", "mongodb+srv"}:
+        return None
+
+    query = {key.lower(): values for key, values in parse_qs(parsed.query).items()}
+    if "tlscafile" in query or "ssl_ca_certs" in query:
+        return None
+
+    tls_enabled = parsed.scheme == "mongodb+srv"
+    for key in ("tls", "ssl"):
+        values = query.get(key)
+        if not values:
+            continue
+        value = values[-1]
+        if _is_truthy(value):
+            tls_enabled = True
+        elif _is_falsy(value):
+            tls_enabled = False
+
+    if not tls_enabled:
+        return None
+
+    try:
+        import certifi
+    except Exception:
+        return None
+    return certifi.where()
 
 
 def _require_pymongo() -> tuple[Any, Any, Any]:
@@ -124,11 +168,15 @@ class MongoStore:
 
     def __init__(self, uri: str) -> None:
         mongo_client, _, _ = _require_pymongo()
-        self._client = mongo_client(
-            uri,
-            tz_aware=True,
-            serverSelectionTimeoutMS=5000,
-        )
+        client_kwargs: dict[str, Any] = {
+            "tz_aware": True,
+            "serverSelectionTimeoutMS": 5000,
+        }
+        tls_ca_file = _resolve_tls_ca_file(uri)
+        if tls_ca_file:
+            client_kwargs["tlsCAFile"] = tls_ca_file
+
+        self._client = mongo_client(uri, **client_kwargs)
         self._db = self._client[_extract_db_name(uri)]
         self._runs = self._db["runs"]
         self._run_events = self._db["run_events"]

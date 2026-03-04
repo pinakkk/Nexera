@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Menu } from 'lucide-react';
 import { Sidebar } from './Sidebar';
+import { TEXT_CONFIG } from '@/lib/text-config';
 
 const SIDEBAR_STORAGE_KEY = 'research-agent-sidebar-collapsed';
 
@@ -48,7 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           type="button"
           onClick={() => setMobileOpen(true)}
           className="fixed left-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-2xl border border-black/[0.06] bg-white/90 text-neutral-700 shadow-lg shadow-black/[0.06] backdrop-blur-xl transition-all hover:scale-105 hover:bg-white active:scale-95 md:hidden dark:border-white/[0.08] dark:bg-[#0e1016]/90 dark:text-neutral-100 dark:shadow-black/30 dark:hover:bg-[#131821]"
-          aria-label="Open menu"
+          aria-label={TEXT_CONFIG.appShell.openMenuAriaLabel}
           whileTap={{ scale: 0.92 }}
         >
           <Menu size={18} strokeWidth={1.75} />
