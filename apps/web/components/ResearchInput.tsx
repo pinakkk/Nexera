@@ -12,9 +12,8 @@ import {
   Paperclip,
   Link2,
   X,
-  Zap,
-  Brain,
-  Layers,
+  Gauge,
+  Cpu,
   Loader2,
   Plus,
   Globe,
@@ -32,9 +31,9 @@ import { TEXT_CONFIG } from '@/lib/text-config';
 /* ------------------------------------------------------------------ */
 
 const DEPTH_PRESETS = [
-  { value: 'quick' as const, label: TEXT_CONFIG.researchInput.depthQuick, icon: Zap, color: 'text-amber-500' },
-  { value: 'standard' as const, label: TEXT_CONFIG.researchInput.depthStandard, icon: Brain, color: 'text-sky-500' },
-  { value: 'deep' as const, label: TEXT_CONFIG.researchInput.depthDeep, icon: Layers, color: 'text-purple-500' },
+  { value: 'quick' as const, label: TEXT_CONFIG.researchInput.depthQuick, color: 'text-amber-500' },
+  { value: 'standard' as const, label: TEXT_CONFIG.researchInput.depthStandard, color: 'text-sky-500' },
+  { value: 'deep' as const, label: TEXT_CONFIG.researchInput.depthDeep, color: 'text-purple-500' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -42,8 +41,8 @@ const DEPTH_PRESETS = [
 /* ------------------------------------------------------------------ */
 
 const MODEL_PRESETS = [
-  { id: 'llama-3.3-70b-versatile', label: TEXT_CONFIG.researchInput.model70b, icon: Brain, color: 'text-purple-500' },
-  { id: 'llama-3.1-8b-instant', label: TEXT_CONFIG.researchInput.model8b, icon: Zap, color: 'text-amber-500' },
+  { id: 'llama-3.3-70b-versatile', label: TEXT_CONFIG.researchInput.model70b, color: 'text-purple-500' },
+  { id: 'llama-3.1-8b-instant', label: TEXT_CONFIG.researchInput.model8b, color: 'text-amber-500' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -73,7 +72,7 @@ export function ResearchInput({
   const [query, setQuery] = useState('');
   const [depth, setDepth] = useState<'quick' | 'standard' | 'deep'>('standard');
   const [selectedModel, setSelectedModel] = useState(MODEL_PRESETS[0].id);
-  const [openMenu, setOpenMenu] = useState<'depth' | 'model' | null>(null);
+  const [openMenu, setOpenMenu] = useState<'depth' | 'model' | 'attach' | null>(null);
 
   const [files, setFiles] = useState<File[]>([]);
   const [urls, setUrls] = useState<string[]>([]);
@@ -134,6 +133,13 @@ export function ResearchInput({
     };
 
     onSubmit(trimmed, constraints, { files, urls });
+
+    // Clear input state immediately after submitting
+    setQuery('');
+    setFiles([]);
+    setUrls([]);
+    setUrlInput('');
+    setShowUrlInput(false);
   }, [query, isLoading, depth, selectedModel, onSubmit, files, urls]);
 
   // Keyboard shortcut (Cmd/Ctrl + Enter)
@@ -234,11 +240,12 @@ export function ResearchInput({
   const canSubmit = query.trim().length > 0 && !isLoading;
   const selectedDepthPreset = DEPTH_PRESETS.find((preset) => preset.value === depth) ?? DEPTH_PRESETS[1];
   const selectedModelPreset = MODEL_PRESETS.find((model) => model.id === selectedModel) ?? MODEL_PRESETS[0];
+  const hasAttachments = files.length > 0 || urls.length > 0;
 
   return (
     <div className="w-full max-w-3xl mx-auto">
       {/* Main input card */}
-      <div className="glass-panel rounded-3xl overflow-visible">
+      <div className="glass-panel rounded-2xl sm:rounded-3xl overflow-visible">
         {/* Textarea */}
         <div className="relative">
           <textarea
@@ -256,7 +263,7 @@ export function ResearchInput({
             rows={1}
             disabled={isLoading || isRecording}
             className={clsx(
-              'w-full resize-none bg-transparent px-5 pb-3 pt-5 text-sm text-neutral-900 placeholder-neutral-400 focus:outline-none dark:text-white dark:placeholder-neutral-600 sm:px-6 sm:text-base leading-relaxed',
+              'w-full resize-none bg-transparent px-4 pb-3 pt-4 text-sm text-neutral-900 placeholder-neutral-400 focus:outline-none dark:text-white dark:placeholder-neutral-600 sm:px-6 sm:pt-5 sm:text-base leading-relaxed',
               isRecording && 'placeholder-red-400 dark:placeholder-red-400',
             )}
           />
@@ -268,7 +275,7 @@ export function ResearchInput({
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.8 }}
-                className="absolute right-4 top-4 flex items-center gap-2"
+                className="absolute right-3 top-3 flex items-center gap-2 sm:right-4 sm:top-4"
               >
                 <span className="relative flex h-3 w-3">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
@@ -288,7 +295,7 @@ export function ResearchInput({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute right-4 top-4 flex items-center gap-2"
+                className="absolute right-3 top-3 flex items-center gap-2 sm:right-4 sm:top-4"
               >
                 <Loader2 size={14} className="animate-spin text-orange-500" />
                 <span className="text-xs font-medium text-orange-500">
@@ -306,7 +313,7 @@ export function ResearchInput({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="px-5 sm:px-6"
+              className="px-4 sm:px-6"
             >
               <div className="flex flex-wrap gap-2 pb-3">
                 {files.map((file, i) => (
@@ -315,7 +322,7 @@ export function ResearchInput({
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-white/[0.06] rounded-lg border border-neutral-200 dark:border-white/[0.08]"
                   >
                     <FileText size={12} className="text-orange-500" />
-                    {file.name.length > 20 ? file.name.slice(0, 17) + '…' : file.name}
+                    {file.name.length > 20 ? file.name.slice(0, 17) + '\u2026' : file.name}
                     <button onClick={() => removeFile(i)} className="ml-0.5 text-neutral-400 hover:text-red-500 transition-colors">
                       <X size={12} />
                     </button>
@@ -345,7 +352,7 @@ export function ResearchInput({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="px-5 sm:px-6"
+              className="px-4 sm:px-6"
             >
               <div className="flex gap-2 pb-3">
                 <input
@@ -366,9 +373,10 @@ export function ResearchInput({
           )}
         </AnimatePresence>
 
-        {/* Bottom toolbar */}
-        <div className="flex items-center justify-between gap-2 border-t border-black/[0.05] dark:border-white/[0.05] px-3 py-2.5 sm:px-4">
-          <div className="flex min-w-0 items-center gap-1 overflow-visible">
+        {/* Bottom toolbar — single row, no wrap */}
+        <div className="flex items-center gap-1.5 border-t border-black/[0.05] dark:border-white/[0.05] px-2 py-2 sm:px-3 sm:gap-2 sm:py-2.5">
+          {/* Left side: action buttons */}
+          <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
             {/* Voice button */}
             <button
               onClick={isRecording ? stopRecording : startRecording}
@@ -396,138 +404,169 @@ export function ResearchInput({
               )}
             </button>
 
-            {/* File attach */}
+            {/* Combined attach button (files + links) */}
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="shrink-0 btn-ghost !px-2 !py-1.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-              title={TEXT_CONFIG.researchInput.attachFilesTitle}
-            >
-              <Paperclip size={16} strokeWidth={1.75} />
-            </button>
+            <div className="relative" ref={menuContainerRef}>
+              <button
+                onClick={() => setOpenMenu((v) => (v === 'attach' ? null : 'attach'))}
+                className={clsx(
+                  'shrink-0 btn-ghost !px-2 !py-1.5 transition-all',
+                  (openMenu === 'attach' || hasAttachments) ? 'text-orange-500' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
+                )}
+                title="Attach files or links"
+              >
+                <Paperclip size={16} strokeWidth={1.75} />
+              </button>
 
-            {/* URL attach */}
-            <button
-              onClick={() => setShowUrlInput((v) => !v)}
-              className={clsx(
-                'shrink-0 btn-ghost !px-2 !py-1.5',
-                showUrlInput ? 'text-orange-500' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
-              )}
-              title={TEXT_CONFIG.researchInput.addUrlTitle}
-            >
-              <Link2 size={16} strokeWidth={1.75} />
-            </button>
-
-            {/* Divider */}
-            <div className="w-px h-5 bg-black/[0.06] dark:bg-white/[0.06] mx-1 shrink-0" />
-
-            {/* Compact selectors */}
-            <div ref={menuContainerRef} className="relative flex items-center gap-1 shrink-0">
-              <div className="relative">
-                <button
-                  onClick={() => setOpenMenu((value) => (value === 'depth' ? null : 'depth'))}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-black/[0.08] dark:border-white/[0.09] bg-white/60 dark:bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-neutral-700 transition-colors hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white"
-                  title={TEXT_CONFIG.researchInput.researchModeTitle}
-                >
-                  <selectedDepthPreset.icon size={12} className="text-orange-500" />
-                  <span className="whitespace-nowrap">{selectedDepthPreset.label}</span>
-                  <ChevronDown size={12} className={clsx('transition-transform', openMenu === 'depth' && 'rotate-180')} />
-                </button>
-
-                <AnimatePresence>
-                  {openMenu === 'depth' && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 6 }}
-                      transition={{ duration: 0.12 }}
-                      className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[150px] overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-lg shadow-black/10 dark:border-white/[0.08] dark:bg-neutral-900 dark:shadow-black/40"
+              {/* Attach dropdown */}
+              <AnimatePresence>
+                {openMenu === 'attach' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 6 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[160px] overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-lg shadow-black/10 dark:border-white/[0.08] dark:bg-neutral-900 dark:shadow-black/40"
+                  >
+                    <button
+                      onClick={() => {
+                        fileInputRef.current?.click();
+                        setOpenMenu(null);
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-xs text-neutral-600 hover:bg-black/[0.03] dark:text-neutral-300 dark:hover:bg-white/[0.06] transition-colors"
                     >
-                      {DEPTH_PRESETS.map((preset) => (
-                        <button
-                          key={preset.value}
-                          onClick={() => {
-                            setDepth(preset.value);
-                            setOpenMenu(null);
-                          }}
-                          className={clsx(
-                            'flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors',
-                            depth === preset.value
-                              ? 'bg-orange-50 text-neutral-900 dark:bg-orange-500/15 dark:text-white'
-                              : 'text-neutral-600 hover:bg-black/[0.03] dark:text-neutral-300 dark:hover:bg-white/[0.06]',
-                          )}
-                        >
-                          <preset.icon size={13} className={depth === preset.value ? 'text-orange-500' : preset.color} />
-                          {preset.label}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <div className="w-px h-5 bg-black/[0.06] dark:bg-white/[0.06] shrink-0" />
-
-              <div className="relative">
-                <button
-                  onClick={() => setOpenMenu((value) => (value === 'model' ? null : 'model'))}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-black/[0.08] dark:border-white/[0.09] bg-white/60 dark:bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-neutral-700 transition-colors hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white"
-                  title={TEXT_CONFIG.researchInput.modelTitle}
-                >
-                  <selectedModelPreset.icon size={12} className="text-orange-500" />
-                  <span className="whitespace-nowrap">{selectedModelPreset.label}</span>
-                  <ChevronDown size={12} className={clsx('transition-transform', openMenu === 'model' && 'rotate-180')} />
-                </button>
-
-                <AnimatePresence>
-                  {openMenu === 'model' && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 6 }}
-                      transition={{ duration: 0.12 }}
-                      className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[170px] overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-lg shadow-black/10 dark:border-white/[0.08] dark:bg-neutral-900 dark:shadow-black/40"
+                      <FileText size={14} className="text-orange-500" />
+                      {TEXT_CONFIG.researchInput.attachFilesTitle}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowUrlInput((v) => !v);
+                        setOpenMenu(null);
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-xs text-neutral-600 hover:bg-black/[0.03] dark:text-neutral-300 dark:hover:bg-white/[0.06] transition-colors"
                     >
-                      {MODEL_PRESETS.map((model) => (
-                        <button
-                          key={model.id}
-                          onClick={() => {
-                            setSelectedModel(model.id);
-                            setOpenMenu(null);
-                          }}
-                          className={clsx(
-                            'flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors',
-                            selectedModel === model.id
-                              ? 'bg-orange-50 text-neutral-900 dark:bg-orange-500/15 dark:text-white'
-                              : 'text-neutral-600 hover:bg-black/[0.03] dark:text-neutral-300 dark:hover:bg-white/[0.06]',
-                          )}
-                        >
-                          <model.icon size={13} className={selectedModel === model.id ? 'text-orange-500' : model.color} />
-                          {model.label}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+                      <Link2 size={14} className="text-blue-500" />
+                      {TEXT_CONFIG.researchInput.addUrlTitle}
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Divider */}
+              <div className="hidden sm:block" />
+            </div>
+
+            <div className="w-px h-5 bg-black/[0.06] dark:bg-white/[0.06] mx-0.5 shrink-0 hidden sm:block" />
+
+            {/* Depth selector */}
+            <div className="relative">
+              <button
+                onClick={() => setOpenMenu((value) => (value === 'depth' ? null : 'depth'))}
+                className="inline-flex items-center gap-1 rounded-lg border border-black/[0.08] dark:border-white/[0.09] bg-white/60 dark:bg-white/[0.04] px-2 py-1.5 text-[11px] font-semibold text-neutral-700 transition-colors hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white sm:gap-1.5 sm:px-2.5"
+                title={TEXT_CONFIG.researchInput.researchModeTitle}
+              >
+                <Gauge size={13} className="text-orange-500 shrink-0" />
+                <span className="hidden sm:inline whitespace-nowrap">{selectedDepthPreset.label}</span>
+                <ChevronDown size={11} className={clsx('transition-transform shrink-0', openMenu === 'depth' && 'rotate-180')} />
+              </button>
+
+              <AnimatePresence>
+                {openMenu === 'depth' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 6 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[150px] overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-lg shadow-black/10 dark:border-white/[0.08] dark:bg-neutral-900 dark:shadow-black/40"
+                  >
+                    {DEPTH_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        onClick={() => {
+                          setDepth(preset.value);
+                          setOpenMenu(null);
+                        }}
+                        className={clsx(
+                          'flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors',
+                          depth === preset.value
+                            ? 'bg-orange-50 text-neutral-900 dark:bg-orange-500/15 dark:text-white'
+                            : 'text-neutral-600 hover:bg-black/[0.03] dark:text-neutral-300 dark:hover:bg-white/[0.06]',
+                        )}
+                      >
+                        <Gauge size={13} className={depth === preset.value ? 'text-orange-500' : preset.color} />
+                        {preset.label}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <div className="w-px h-5 bg-black/[0.06] dark:bg-white/[0.06] shrink-0 hidden sm:block" />
+
+            {/* Model selector */}
+            <div className="relative">
+              <button
+                onClick={() => setOpenMenu((value) => (value === 'model' ? null : 'model'))}
+                className="inline-flex items-center gap-1 rounded-lg border border-black/[0.08] dark:border-white/[0.09] bg-white/60 dark:bg-white/[0.04] px-2 py-1.5 text-[11px] font-semibold text-neutral-700 transition-colors hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white sm:gap-1.5 sm:px-2.5"
+                title={TEXT_CONFIG.researchInput.modelTitle}
+              >
+                <Cpu size={13} className="text-orange-500 shrink-0" />
+                <span className="hidden sm:inline whitespace-nowrap">{selectedModelPreset.label}</span>
+                <ChevronDown size={11} className={clsx('transition-transform shrink-0', openMenu === 'model' && 'rotate-180')} />
+              </button>
+
+              <AnimatePresence>
+                {openMenu === 'model' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 6 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[170px] overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-lg shadow-black/10 dark:border-white/[0.08] dark:bg-neutral-900 dark:shadow-black/40"
+                  >
+                    {MODEL_PRESETS.map((model) => (
+                      <button
+                        key={model.id}
+                        onClick={() => {
+                          setSelectedModel(model.id);
+                          setOpenMenu(null);
+                        }}
+                        className={clsx(
+                          'flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors',
+                          selectedModel === model.id
+                            ? 'bg-orange-50 text-neutral-900 dark:bg-orange-500/15 dark:text-white'
+                            : 'text-neutral-600 hover:bg-black/[0.03] dark:text-neutral-300 dark:hover:bg-white/[0.06]',
+                        )}
+                      >
+                        <Cpu size={13} className={selectedModel === model.id ? 'text-orange-500' : model.color} />
+                        {model.label}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
-          {/* Submit */}
+          {/* Spacer */}
+          <div className="flex-1 min-w-0" />
+
+          {/* Submit — always stays on the same line */}
           <button
             onClick={handleSubmit}
             disabled={!canSubmit}
             className={clsx(
-              'flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-200 shrink-0',
+              'flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all duration-200 shrink-0 sm:gap-2 sm:px-4 sm:text-sm',
               canSubmit
                 ? 'bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-md shadow-orange-600/20 hover:shadow-lg hover:shadow-orange-600/30 active:scale-[0.96]'
                 : 'bg-neutral-100 dark:bg-white/[0.04] text-neutral-400 dark:text-neutral-600 cursor-not-allowed',
             )}
           >
             {isLoading ? (
-              <Loader2 size={16} className="animate-spin" />
+              <Loader2 size={15} className="animate-spin" />
             ) : (
-              <ArrowUp size={16} strokeWidth={2.5} />
+              <ArrowUp size={15} strokeWidth={2.5} />
             )}
             <span className="hidden sm:inline">
               {isLoading
@@ -539,9 +578,9 @@ export function ResearchInput({
       </div>
 
       {/* Keyboard hint */}
-      <p className="mt-3 text-center text-[11px] text-neutral-400 dark:text-neutral-700">
+      <p className="mt-2.5 text-center text-[11px] text-neutral-400 dark:text-neutral-700">
         {TEXT_CONFIG.researchInput.keyboardHintPrefix}{' '}
-        <kbd className="px-1.5 py-0.5 rounded bg-black/[0.04] dark:bg-white/[0.04] font-mono text-[10px]">⌘</kbd>
+        <kbd className="px-1.5 py-0.5 rounded bg-black/[0.04] dark:bg-white/[0.04] font-mono text-[10px]">\u2318</kbd>
         <span className="mx-0.5">+</span>
         <kbd className="px-1.5 py-0.5 rounded bg-black/[0.04] dark:bg-white/[0.04] font-mono text-[10px]">Enter</kbd>
         {' '}{TEXT_CONFIG.researchInput.keyboardHintSuffix}

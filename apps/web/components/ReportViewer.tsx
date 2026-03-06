@@ -21,6 +21,23 @@ interface ReportViewerProps {
   runId?: string;
 }
 
+function isDetailedResearchReport(
+  reportMd: string,
+  citations: Citation[],
+  evaluation: EvaluationScores | null,
+): boolean {
+  const plainLength = reportMd.replace(/[#>*`\-\n\r]/g, ' ').trim().length;
+  const citationCount = citations.length;
+  const hasSections = /(^|\n)#{2,}\s+/m.test(reportMd);
+  const hasEvaluation = (evaluation?.overall ?? 0) > 0;
+
+  return (
+    plainLength >= 550
+    && citationCount >= 2
+    && (hasSections || hasEvaluation)
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -56,6 +73,8 @@ export function ReportViewer({
     );
   }
 
+  const canDownloadPdf = isDetailedResearchReport(reportMd, citations, evaluation);
+
   const handleDownloadPdf = async () => {
     if (!runId) return;
     setIsDownloading(true);
@@ -82,13 +101,13 @@ export function ReportViewer({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Top bar: Evaluation + Download */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {evaluation && <EvaluationBar scores={evaluation} />}
 
         {/* PDF Download button */}
-        {runId && !isRunning && (
+        {runId && !isRunning && canDownloadPdf && (
           <button
             onClick={handleDownloadPdf}
             disabled={isDownloading}

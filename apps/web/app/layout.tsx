@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
-import { Manrope, Space_Grotesk } from 'next/font/google';
+import { Manrope, Space_Grotesk, Poppins } from 'next/font/google';
 import './globals.css';
-import { ThemeProvider } from '@/components/theme';
-import { AppShell } from '@/components/AppShell';
+import { Providers } from '@/components/Providers';
 import { TEXT_CONFIG } from '@/lib/text-config';
 
 const manrope = Manrope({
@@ -15,6 +14,13 @@ const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
   display: 'swap',
   variable: '--font-space-grotesk',
+});
+
+const poppins = Poppins({
+  weight: ['400', '500', '600', '700'],
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-poppins',
 });
 
 export const metadata: Metadata = {
@@ -31,12 +37,10 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${manrope.variable} ${spaceGrotesk.variable}`}
+      className={`${manrope.variable} ${spaceGrotesk.variable} ${poppins.variable}`}
     >
       <body>
-        <ThemeProvider>
-          <AppShell>{children}</AppShell>
-        </ThemeProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

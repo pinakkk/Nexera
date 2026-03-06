@@ -91,28 +91,28 @@ function ThinkingSkeleton({ activeState }: { activeState: string | null }) {
         <motion.div
           animate={{ rotate: [0, 360] }}
           transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-          className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500/20 to-amber-500/20"
+          className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-orange-500/20 to-amber-500/20 sm:h-8 sm:w-8 sm:rounded-xl"
         >
           {stateIcon(activeState)}
         </motion.div>
         <div>
-          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
+          <p className="text-xs font-medium text-neutral-700 dark:text-neutral-200 sm:text-sm">
             {activeState
               ? formatAgentStateLabel(activeState)
               : TEXT_CONFIG.runPage.thinkingInit}
           </p>
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500 sm:text-xs">
             {TEXT_CONFIG.runPage.thinkingSubtitle}
           </p>
         </div>
       </div>
 
       {/* Animated progress bars */}
-      <div className="space-y-2.5 py-1">
+      <div className="space-y-2 py-1">
         {[0.85, 1, 0.7, 0.9].map((w, i) => (
           <motion.div
             key={i}
-            className="h-3 rounded-full bg-gradient-to-r from-neutral-200/60 via-neutral-100/80 to-neutral-200/60 dark:from-white/[0.06] dark:via-white/[0.12] dark:to-white/[0.06]"
+            className="h-2.5 rounded-full bg-gradient-to-r from-neutral-200/60 via-neutral-100/80 to-neutral-200/60 dark:from-white/[0.06] dark:via-white/[0.12] dark:to-white/[0.06] sm:h-3"
             style={{ width: `${w * 100}%` }}
             animate={{ opacity: [0.4, 0.8, 0.4] }}
             transition={{
@@ -125,7 +125,7 @@ function ThinkingSkeleton({ activeState }: { activeState: string | null }) {
       </div>
 
       {/* Live step pills */}
-      <div className="flex flex-wrap gap-2 pt-1">
+      <div className="flex flex-wrap gap-1.5 pt-1 sm:gap-2">
         {TEXT_CONFIG.runPage.thinkingSteps.map(
           (step, i) => {
             const isActive =
@@ -139,7 +139,7 @@ function ThinkingSkeleton({ activeState }: { activeState: string | null }) {
                   scale: isActive ? 1.05 : 1,
                 }}
                 transition={{ delay: i * 0.1 }}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium transition-colors ${isActive
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors sm:gap-1.5 sm:px-3 sm:py-1 sm:text-[11px] ${isActive
                   ? 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/25'
                   : 'bg-neutral-100 text-neutral-400 dark:bg-white/[0.04] dark:text-neutral-600 border border-transparent'
                   }`}
@@ -194,7 +194,7 @@ export default function RunPage() {
   const params = useParams();
   const runId = params.id as string;
   const traceLogoSrc =
-    theme === 'dark' ? '/assets/darksqaure.png' : '/assets/square.png';
+    theme === 'dark' ? '/assets/darksquare.png' : '/assets/square.png';
 
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -333,11 +333,11 @@ export default function RunPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-[100dvh] items-center justify-center">
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="flex flex-col items-center gap-4"
+          className="flex flex-col items-center gap-4 rounded-2xl border border-black/[0.05] bg-white/70 px-8 py-7 backdrop-blur-xl dark:border-white/[0.06] dark:bg-[#11141b]/70"
         >
           <div className="relative">
             <Loader2
@@ -355,7 +355,7 @@ export default function RunPage() {
   }
 
   return (
-    <div className="relative min-h-screen px-3 pb-8 pt-14 sm:px-5 sm:pt-5 lg:px-8">
+    <div className="relative min-h-[100dvh] px-2 pb-6 pt-14 sm:px-4 sm:pt-5 lg:px-8 lg:pb-8">
       {/* Gradient background accent for running state */}
       <AnimatePresence>
         {isRunning && (
@@ -365,8 +365,8 @@ export default function RunPage() {
             exit={{ opacity: 0 }}
             className="pointer-events-none fixed inset-0 z-0"
           >
-            <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-orange-500/[0.04] blur-3xl" />
-            <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-amber-500/[0.04] blur-3xl" />
+            <div className="absolute -top-32 -right-32 h-64 w-64 rounded-full bg-orange-500/[0.04] blur-3xl sm:h-96 sm:w-96" />
+            <div className="absolute -bottom-32 -left-32 h-64 w-64 rounded-full bg-amber-500/[0.04] blur-3xl sm:h-96 sm:w-96" />
           </motion.div>
         )}
       </AnimatePresence>
@@ -377,25 +377,25 @@ export default function RunPage() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
-          className="glass-panel flex min-h-[60vh] flex-1 flex-col rounded-2xl border p-3 sm:min-h-[70vh] sm:rounded-[28px] sm:p-5 overflow-hidden"
+          className="glass-panel flex min-h-[55vh] flex-1 flex-col overflow-hidden rounded-2xl border p-3 sm:min-h-[70vh] sm:rounded-[28px] sm:p-5"
         >
           {/* Header */}
-          <header className="flex items-start gap-3 border-b border-black/[0.06] pb-4 dark:border-white/[0.06]">
+          <header className="flex items-start gap-2.5 border-b border-black/[0.06] pb-3 dark:border-white/[0.06] sm:gap-3 sm:pb-4">
             <Link
               href="/"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-black/[0.08] text-neutral-500 transition-all hover:bg-orange-500/10 hover:text-orange-600 hover:border-orange-500/20 dark:border-white/[0.08] dark:text-neutral-400 dark:hover:text-orange-400"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-black/[0.08] text-neutral-500 transition-all hover:bg-orange-500/10 hover:text-orange-600 hover:border-orange-500/20 dark:border-white/[0.08] dark:text-neutral-400 dark:hover:text-orange-400 sm:h-9 sm:w-9 sm:rounded-xl"
               title={TEXT_CONFIG.runPage.backTitle}
             >
-              <ArrowLeft size={16} />
+              <ArrowLeft size={15} />
             </Link>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-base font-semibold text-neutral-900 dark:text-white sm:text-lg">
+              <p className="truncate text-sm font-semibold text-neutral-900 dark:text-white sm:text-base lg:text-lg">
                 {query || TEXT_CONFIG.runPage.noQueryFallback}
               </p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] sm:mt-1.5 sm:gap-2 sm:text-xs">
                 {/* Status badge */}
                 <span
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-medium ${badge.className}`}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium sm:gap-1.5 sm:px-2.5 sm:py-1 ${badge.className}`}
                 >
                   {badge.pulse && (
                     <span className="relative flex h-1.5 w-1.5">
@@ -409,14 +409,14 @@ export default function RunPage() {
 
                 {/* Active state label */}
                 {activeState && isRunning && (
-                  <span className="text-neutral-500 dark:text-neutral-400">
+                  <span className="text-neutral-500 dark:text-neutral-400 hidden sm:inline">
                     {formatAgentStateLabel(activeState)}
                   </span>
                 )}
 
                 {/* Iteration badge */}
                 {maxIterations > 0 && (
-                  <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-neutral-500 dark:bg-white/[0.05] dark:text-neutral-400">
+                  <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-neutral-500 dark:bg-white/[0.05] dark:text-neutral-400 sm:px-2">
                     {TEXT_CONFIG.runPage.iterationPrefix} {iteration}/{maxIterations}
                   </span>
                 )}
@@ -426,10 +426,10 @@ export default function RunPage() {
             {/* Mobile trace toggle */}
             <button
               onClick={() => setShowTrace(!showTrace)}
-              className="flex h-9 items-center gap-1.5 rounded-xl border border-black/[0.08] px-3 text-xs font-medium text-neutral-600 transition-all hover:bg-orange-500/10 hover:text-orange-600 dark:border-white/[0.08] dark:text-neutral-400 dark:hover:text-orange-400 lg:hidden"
+              className="flex h-8 items-center gap-1 rounded-lg border border-black/[0.08] px-2 text-[10px] font-medium text-neutral-600 transition-all hover:bg-orange-500/10 hover:text-orange-600 dark:border-white/[0.08] dark:text-neutral-400 dark:hover:text-orange-400 lg:hidden sm:h-9 sm:gap-1.5 sm:rounded-xl sm:px-3 sm:text-xs"
             >
-              <Zap size={13} />
-              {TEXT_CONFIG.runPage.traceToggle}
+              <Zap size={12} />
+              <span className="hidden sm:inline">{TEXT_CONFIG.runPage.traceToggle}</span>
             </button>
           </header>
 
@@ -440,10 +440,10 @@ export default function RunPage() {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="mt-4 overflow-hidden rounded-2xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-sm text-red-600 dark:text-red-400"
+                className="mt-3 overflow-hidden rounded-xl border border-red-500/20 bg-red-500/[0.06] px-3 py-2.5 text-xs text-red-600 dark:text-red-400 sm:mt-4 sm:rounded-2xl sm:px-4 sm:py-3 sm:text-sm"
               >
                 <div className="flex items-start gap-2">
-                  <XCircle size={16} className="mt-0.5 shrink-0" />
+                  <XCircle size={14} className="mt-0.5 shrink-0 sm:size-4" />
                   <p>{error}</p>
                 </div>
               </motion.div>
@@ -451,18 +451,18 @@ export default function RunPage() {
           </AnimatePresence>
 
           {/* Chat bubbles — scrollable, clipped */}
-          <div className="mt-5 flex-1 space-y-4 overflow-y-auto overflow-x-hidden">
+          <div className="mt-4 flex-1 space-y-4 overflow-y-auto overflow-x-hidden sm:mt-5 sm:space-y-5">
             {/* User message */}
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.1 }}
-              className="ml-auto max-w-[92%] sm:max-w-[78%]"
+              className="ml-auto max-w-[95%] sm:max-w-[78%]"
             >
-              <div className="rounded-2xl rounded-tr-md bg-gradient-to-r from-orange-600 to-orange-500 px-4 py-3 text-sm text-white shadow-lg shadow-orange-600/15">
+              <div className="rounded-2xl rounded-tr-md bg-gradient-to-r from-orange-600 to-orange-500 px-3.5 py-2.5 text-[13px] text-white shadow-md shadow-orange-600/15 sm:px-4 sm:py-3 sm:text-sm">
                 {query}
               </div>
-              <p className="mt-1 text-right text-[11px] text-neutral-400 dark:text-neutral-500">
+              <p className="mt-1 text-right text-[10px] text-neutral-400 dark:text-neutral-500 sm:text-[11px]">
                 {TEXT_CONFIG.runPage.userLabel}
               </p>
             </motion.div>
@@ -474,7 +474,7 @@ export default function RunPage() {
               transition={{ delay: 0.2 }}
               className="max-w-full sm:max-w-[92%]"
             >
-              <div className="rounded-2xl rounded-tl-md border border-black/[0.06] bg-white/80 px-4 py-4 shadow-sm backdrop-blur-sm dark:border-white/[0.06] dark:bg-[#101216]/80 overflow-hidden">
+              <div className="rounded-2xl rounded-tl-md border border-black/[0.06] bg-white/82 px-3 py-3 shadow-sm backdrop-blur-sm dark:border-white/[0.06] dark:bg-[#101216]/82 sm:px-4 sm:py-4">
                 {isRunning && !result?.report_md ? (
                   <ThinkingSkeleton activeState={activeState} />
                 ) : (
@@ -488,7 +488,7 @@ export default function RunPage() {
                   />
                 )}
               </div>
-              <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+              <p className="mt-1 text-[10px] text-neutral-400 dark:text-neutral-500 sm:text-[11px]">
                 {TEXT_CONFIG.runPage.assistantName}
               </p>
             </motion.div>
@@ -499,12 +499,12 @@ export default function RunPage() {
                 key={event.id}
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="ml-auto max-w-[92%] sm:max-w-[78%]"
+                className="ml-auto max-w-[95%] sm:max-w-[78%]"
               >
-                <div className="rounded-2xl rounded-tr-md border border-orange-500/25 bg-orange-500/10 px-4 py-3 text-sm text-orange-700 dark:text-orange-300">
+                <div className="rounded-2xl rounded-tr-md border border-orange-500/25 bg-orange-500/10 px-3.5 py-2.5 text-[13px] text-orange-700 dark:text-orange-300 sm:px-4 sm:py-3 sm:text-sm">
                   {extractSteeringMessage(event)}
                 </div>
-                <p className="mt-1 text-right text-[11px] text-neutral-400 dark:text-neutral-500">
+                <p className="mt-1 text-right text-[10px] text-neutral-400 dark:text-neutral-500 sm:text-[11px]">
                   {TEXT_CONFIG.runPage.steeringUserLabel}
                 </p>
               </motion.div>
@@ -518,7 +518,7 @@ export default function RunPage() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
-                className="mt-4 border-t border-black/[0.06] pt-3 dark:border-white/[0.06]"
+                className="mt-3 border-t border-black/[0.06] pt-3 dark:border-white/[0.06] sm:mt-4"
               >
                 <div className="flex items-end gap-2">
                   <textarea
@@ -532,29 +532,29 @@ export default function RunPage() {
                     }}
                     rows={1}
                     placeholder={TEXT_CONFIG.runPage.steeringPlaceholder}
-                    className="min-h-[42px] flex-1 resize-none rounded-xl border border-black/[0.08] bg-white/80 px-3 py-2 text-sm text-neutral-800 outline-none transition-colors focus:border-orange-500/40 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-neutral-100"
+                    className="min-h-[38px] flex-1 resize-none rounded-xl border border-black/[0.08] bg-white/80 px-3 py-2 text-xs text-neutral-800 outline-none transition-colors focus:border-orange-500/40 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-neutral-100 sm:min-h-[42px] sm:text-sm"
                   />
                   <button
                     onClick={() => void handleSteeringSubmit()}
                     disabled={!canSubmitSteering}
-                    className={`flex h-[42px] w-[42px] items-center justify-center rounded-xl transition-all ${canSubmitSteering
+                    className={`flex h-[38px] w-[38px] items-center justify-center rounded-xl transition-all sm:h-[42px] sm:w-[42px] ${canSubmitSteering
                       ? 'bg-orange-500 text-white hover:bg-orange-600'
                       : 'bg-neutral-100 text-neutral-400 dark:bg-white/[0.06] dark:text-neutral-600'
                       }`}
                     title={TEXT_CONFIG.runPage.steeringSubmitTitle}
                   >
                     {isSteeringSubmitting ? (
-                      <Loader2 size={15} className="animate-spin" />
+                      <Loader2 size={14} className="animate-spin" />
                     ) : (
-                      <ArrowUp size={16} />
+                      <ArrowUp size={15} />
                     )}
                   </button>
                 </div>
-                <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+                <p className="mt-1.5 text-[10px] text-neutral-500 dark:text-neutral-400 sm:mt-2 sm:text-xs">
                   {TEXT_CONFIG.runPage.steeringHint}
                 </p>
                 {steeringFeedback && (
-                  <p className="mt-1 text-xs text-orange-600 dark:text-orange-400">
+                  <p className="mt-1 text-[10px] text-orange-600 dark:text-orange-400 sm:text-xs">
                     {steeringFeedback}
                   </p>
                 )}
@@ -568,10 +568,10 @@ export default function RunPage() {
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.4, delay: 0.15 }}
-          className={`rounded-2xl p-1 sm:p-2 lg:block lg:w-[360px] lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:sticky lg:top-5 ${showTrace ? 'block' : 'hidden lg:block'
+          className={`glass-panel rounded-2xl border p-3 sm:rounded-[28px] sm:p-4 lg:sticky lg:top-5 lg:block lg:max-h-[calc(100vh-3rem)] lg:w-[340px] lg:overflow-y-auto xl:w-[360px] ${showTrace ? 'block' : 'hidden lg:block'
             }`}
         >
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between sm:mb-4">
             <div className="flex items-center gap-2">
               <Image
                 key={traceLogoSrc}
@@ -579,20 +579,20 @@ export default function RunPage() {
                 alt={TEXT_CONFIG.runPage.traceTitle}
                 width={18}
                 height={18}
-                className="h-[18px] w-[18px] rounded-md object-cover"
+                className="h-[16px] w-[16px] rounded-md object-cover sm:h-[18px] sm:w-[18px]"
               />
-              <p className="text-sm font-semibold text-neutral-900 dark:text-white">
+              <p className="text-xs font-semibold text-neutral-900 dark:text-white sm:text-sm">
                 {TEXT_CONFIG.runPage.traceTitle}
               </p>
             </div>
-            <span className="px-1 text-[11px] font-mono text-neutral-500 dark:text-neutral-400">
+            <span className="px-1 text-[10px] font-mono text-neutral-500 dark:text-neutral-400 sm:text-[11px]">
               {runId.slice(0, 8)}
             </span>
           </div>
 
           {/* Event count badge */}
           {events.length > 0 && (
-            <div className="mb-3 flex items-center gap-2 px-1 text-xs text-neutral-500 dark:text-neutral-400">
+            <div className="mb-3 flex items-center gap-2 px-1 text-[10px] text-neutral-500 dark:text-neutral-400 sm:text-xs">
               <span>
                 {events.length} event{events.length !== 1 ? 's' : ''}{' '}
                 {TEXT_CONFIG.runPage.eventsTrackedSuffix}

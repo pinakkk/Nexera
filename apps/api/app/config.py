@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     ARXIV_ENDPOINT: str = "https://export.arxiv.org/api"
 
     # ── Database ─────────────────────────────────────────────────────────────
-    DATABASE_URL: str = "mongodb+srv://user1:okdarling07@nexera.kqvy0c5.mongodb.net/nexera?appName=Nexera"
+    DATABASE_URL: str = ""
     DB_STARTUP_RETRIES: int = 5
     DB_STARTUP_RETRY_DELAY_SECONDS: float = 2.0
     ALLOW_START_WITHOUT_DB: bool = False
@@ -86,6 +86,10 @@ class Settings(BaseSettings):
 
     # ── PDF Reports ──────────────────────────────────────────────────────────
     REPORTS_DIR: str = "reports"
+
+    # ── Clerk Authentication ──────────────────────────────────────────────────
+    CLERK_SECRET_KEY: str = ""
+    CLERK_PUBLISHABLE_KEY: str = ""
 
     model_config = {
         "env_file": ".env",

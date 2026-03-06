@@ -29,3 +29,5 @@ spacy>=3.7.0,<4
 tavily-python==0.5.0
 # PDF generation
 reportlab>=4.0.0
+# JWT authentication (Clerk)
+PyJWT[crypto]>=2.8.0

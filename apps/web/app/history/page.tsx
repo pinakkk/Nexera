@@ -2,8 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useAuth } from '@clerk/nextjs';
 import { motion, AnimatePresence } from 'framer-motion';
 import { listRuns, deleteRun } from '@/lib/api';
+
 import { RunStatus, RunStatusValue } from '@/lib/types';
 import { TEXT_CONFIG } from '@/lib/text-config';
 import {
@@ -19,35 +21,40 @@ import {
   Loader2,
   AlertTriangle,
   Sparkles,
+  FileText,
 } from 'lucide-react';
 
 const statusConfig: Record<
   RunStatusValue,
-  { label: string; dotClass: string; chipClass: string; icon: typeof Clock }
+  { label: string; dotClass: string; chipClass: string; icon: typeof Clock; bgClass: string }
 > = {
   pending: {
     label: TEXT_CONFIG.history.status.pending,
     dotClass: 'bg-neutral-400',
     chipClass: 'chip-neutral',
     icon: Clock,
+    bgClass: 'bg-neutral-500/10 border-neutral-500/20 text-neutral-500',
   },
   running: {
     label: TEXT_CONFIG.history.status.running,
     dotClass: 'bg-blue-400 animate-pulse',
     chipClass: 'chip-info',
     icon: Loader2,
+    bgClass: 'bg-blue-500/10 border-blue-500/20 text-blue-500',
   },
   completed: {
     label: TEXT_CONFIG.history.status.completed,
     dotClass: 'bg-emerald-400',
     chipClass: 'chip-success',
     icon: CheckCircle2,
+    bgClass: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500',
   },
   failed: {
     label: TEXT_CONFIG.history.status.failed,
     dotClass: 'bg-red-400',
     chipClass: 'chip-error',
     icon: AlertTriangle,
+    bgClass: 'bg-red-500/10 border-red-500/20 text-red-500',
   },
 };
 
@@ -78,7 +85,7 @@ function formatDate(iso: string): string {
 
 function SkeletonCard() {
   return (
-    <div className="glass-panel-solid rounded-2xl p-5 animate-pulse">
+    <div className="rounded-2xl border border-black/[0.05] dark:border-white/[0.05] bg-white/60 dark:bg-white/[0.02] p-5 animate-pulse">
       <div className="flex items-start gap-4">
         <div className="w-10 h-10 rounded-xl bg-black/[0.06] dark:bg-white/[0.06]" />
         <div className="flex-1 space-y-2.5 pt-1">
@@ -112,6 +119,36 @@ function EmptyState() {
         <Sparkles size={16} />
         {TEXT_CONFIG.history.startResearch}
       </Link>
+    </motion.div>
+  );
+}
+
+function ErrorBanner({ message, onDismiss, onRetry }: { message: string; onDismiss: () => void; onRetry?: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="mb-5 flex items-start gap-3 rounded-2xl border border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/[0.06] px-4 py-3"
+    >
+      <AlertCircle size={16} strokeWidth={2} className="shrink-0 mt-0.5 text-red-500" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-red-700 dark:text-red-300">{message}</p>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="mt-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200 transition-colors"
+          >
+            Try again →
+          </button>
+        )}
+      </div>
+      <button
+        onClick={onDismiss}
+        className="text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors"
+      >
+        <X size={14} />
+      </button>
     </motion.div>
   );
 }
@@ -198,34 +235,20 @@ function RunCard({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
-      transition={{ duration: 0.35, delay: index * 0.04 }}
+      transition={{ duration: 0.35, delay: index * 0.03 }}
       layout
     >
       <Link
         href={`/runs/${run.run_id}`}
-        className="group relative flex items-start gap-4 rounded-2xl glass-panel-solid p-4 hover:shadow-lg hover:shadow-black/[0.04] dark:hover:shadow-black/[0.2] hover:-translate-y-[1px] transition-all duration-300 sm:p-5"
+        className="group relative flex items-start gap-4 rounded-2xl border border-black/[0.05] dark:border-white/[0.05] bg-white/70 dark:bg-white/[0.02] p-4 hover:bg-white dark:hover:bg-white/[0.04] hover:shadow-md hover:shadow-black/[0.03] dark:hover:shadow-black/[0.15] hover:-translate-y-[1px] transition-all duration-300 sm:p-5"
       >
         <div
-          className={`flex items-center justify-center w-10 h-10 rounded-xl shrink-0 ${run.status === 'completed'
-            ? 'bg-emerald-500/10 border border-emerald-500/20'
-            : run.status === 'running'
-              ? 'bg-blue-500/10 border border-blue-500/20'
-              : run.status === 'failed'
-                ? 'bg-red-500/10 border border-red-500/20'
-                : 'bg-neutral-500/10 border border-neutral-500/20'
-            }`}
+          className={`flex items-center justify-center w-10 h-10 rounded-xl shrink-0 border ${config.bgClass}`}
         >
           <StatusIcon
             size={16}
             strokeWidth={2}
-            className={`${run.status === 'completed'
-              ? 'text-emerald-500'
-              : run.status === 'running'
-                ? 'text-blue-500 animate-spin'
-                : run.status === 'failed'
-                  ? 'text-red-500'
-                  : 'text-neutral-400'
-              }`}
+            className={run.status === 'running' ? 'animate-spin' : ''}
           />
         </div>
 
@@ -238,8 +261,8 @@ function RunCard({
               <span className={`w-1.5 h-1.5 rounded-full ${config.dotClass}`} />
               {config.label}
             </span>
-            <span className="text-[11px] text-neutral-400 dark:text-neutral-600 font-mono">
-              {run.run_id.slice(0, 8)}
+            <span className="text-[11px] text-neutral-400 dark:text-neutral-600">
+              {formatDate(run.created_at)}
             </span>
             {run.iteration > 0 && (
               <span className="text-[11px] text-neutral-500">
@@ -247,9 +270,6 @@ function RunCard({
                 {run.max_iterations > 0 ? `/${run.max_iterations}` : ''} iter
               </span>
             )}
-            <span className="text-[11px] text-neutral-400 dark:text-neutral-600">
-              {formatDate(run.created_at)}
-            </span>
           </div>
         </div>
 
@@ -277,6 +297,7 @@ function RunCard({
 }
 
 export default function HistoryPage() {
+  const { isSignedIn, isLoaded } = useAuth();
   const [runs, setRuns] = useState<RunStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -285,6 +306,10 @@ export default function HistoryPage() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchRuns = useCallback(async () => {
+    if (!isSignedIn) {
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -297,7 +322,7 @@ export default function HistoryPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isSignedIn]);
 
   useEffect(() => {
     fetchRuns();
@@ -324,25 +349,54 @@ export default function HistoryPage() {
     )
     : runs;
 
+  const completedCount = runs.filter((r) => r.status === 'completed').length;
+  const runningCount = runs.filter((r) => r.status === 'running' || r.status === 'pending').length;
+
   return (
     <div className="flex min-h-screen flex-col px-3 pb-8 pt-16 sm:px-8 sm:pt-8">
+      {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
         className="shrink-0 pb-6"
       >
-        <div className="flex items-center gap-3 mb-1">
-          <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-neutral-100 to-neutral-50 border border-neutral-200/60 dark:from-white/[0.06] dark:to-white/[0.02] dark:border-white/[0.08]">
-            <Clock size={17} strokeWidth={1.75} className="text-neutral-600 dark:text-neutral-400" />
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-neutral-100 to-neutral-50 border border-neutral-200/60 dark:from-white/[0.06] dark:to-white/[0.02] dark:border-white/[0.08]">
+              <Clock size={17} strokeWidth={1.75} className="text-neutral-600 dark:text-neutral-400" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-neutral-900 dark:text-white">{TEXT_CONFIG.history.title}</h1>
+              <p className="text-xs text-neutral-500 dark:text-neutral-600">{TEXT_CONFIG.history.subtitle}</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-neutral-900 dark:text-white">{TEXT_CONFIG.history.title}</h1>
-            <p className="text-xs text-neutral-500 dark:text-neutral-600">{TEXT_CONFIG.history.subtitle}</p>
-          </div>
+
+          {/* Stats */}
+          {runs.length > 0 && !isLoading && (
+            <div className="hidden sm:flex items-center gap-3">
+              <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-500">
+                <FileText size={13} />
+                <span className="font-medium">{runs.length}</span> total
+              </div>
+              {completedCount > 0 && (
+                <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 size={13} />
+                  <span className="font-medium">{completedCount}</span> completed
+                </div>
+              )}
+              {runningCount > 0 && (
+                <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
+                  <Loader2 size={13} className="animate-spin" />
+                  <span className="font-medium">{runningCount}</span> active
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </motion.div>
 
+      {/* Search + Refresh */}
       <motion.div
         initial={{ opacity: 0, y: -5 }}
         animate={{ opacity: 1, y: 0 }}
@@ -387,33 +441,45 @@ export default function HistoryPage() {
         </button>
       </motion.div>
 
+      {/* Error */}
       <AnimatePresence>
         {error && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="mb-5 flex items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-sm text-red-600 dark:text-red-400"
-          >
-            <AlertCircle size={16} strokeWidth={2} className="shrink-0" />
-            <span className="flex-1">{error}</span>
-            <button
-              onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-600 dark:hover:text-red-300"
-            >
-              <X size={14} />
-            </button>
-          </motion.div>
+          <ErrorBanner
+            message={error}
+            onDismiss={() => setError(null)}
+            onRetry={fetchRuns}
+          />
         )}
       </AnimatePresence>
 
+      {/* Content */}
       <div className="flex-1">
-        {isLoading ? (
+        {!isLoaded || isLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
               <SkeletonCard key={i} />
             ))}
           </div>
+        ) : !isSignedIn ? (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="flex flex-col items-center justify-center py-24 px-6"
+          >
+            <div className="flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-orange-500/10 to-orange-600/5 border border-orange-500/15 mb-6">
+              <Inbox size={32} strokeWidth={1.5} className="text-orange-500/60" />
+            </div>
+            <h3 className="text-lg font-bold text-neutral-900 dark:text-white mb-2">
+              Sign in to view your history
+            </h3>
+            <p className="text-sm text-neutral-500 text-center max-w-sm mb-8 leading-relaxed">
+              Your chats and research reports are saved to your account. Sign in to access them from anywhere.
+            </p>
+            <Link href="/sign-in" className="btn-primary">
+              Sign In
+            </Link>
+          </motion.div>
         ) : filteredRuns.length === 0 && runs.length === 0 ? (
           <EmptyState />
         ) : filteredRuns.length === 0 ? (

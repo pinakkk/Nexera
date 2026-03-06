@@ -21,6 +21,7 @@ from slowapi.util import get_remote_address
 from app.config import get_settings
 from app.db.mongo import ensure_mongo_ready
 from app.services.integrations import log_api_integration_status
+from app.user_keys import apply_user_keys, clear_request_settings
 
 # ---------------------------------------------------------------------------
 # Rate limiter (uses client IP by default)
@@ -93,6 +94,8 @@ def create_app() -> FastAPI:
     @application.middleware("http")
     async def add_request_id(request: Request, call_next):  # type: ignore[no-untyped-def]
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        # Apply user-provided API keys for this request
+        apply_user_keys(request)
         try:
             response = await call_next(request)
         except Exception:
@@ -115,6 +118,7 @@ def create_app() -> FastAPI:
                     response.headers["Vary"] = "Origin"
 
         response.headers["X-Request-ID"] = request_id
+        clear_request_settings()
         return response
 
     # ── Global exception handlers ────────────────────────────────────────
@@ -160,9 +164,8 @@ def _register_routers(application: FastAPI) -> None:
 
         application.include_router(v1_router, prefix="/v1")
         application.include_router(health_router)
-    except (ImportError, AttributeError):
-        # During initial scaffolding the router module may not exist yet.
-        pass
+    except Exception as e:
+        logger.error("Error loading router", exc_info=e)
 
 
 # Create the singleton app instance used by uvicorn.

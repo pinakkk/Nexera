@@ -14,30 +14,32 @@
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.0.1",
     "@prisma/client": "^6.16.3",
     "clsx": "^2.1.1",
-    "framer-motion": "^11.18.2",
-    "lucide-react": "^0.447.0",
-    "next": "14.2.14",
+    "framer-motion": "^12.35.0",
+    "lucide-react": "^0.577.0",
+    "next": "15.5.12",
     "prisma": "^6.16.3",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
     "tailwind-merge": "^2.5.3"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.4",
     "@jest/types": "^29.6.0",
-    "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
+    "@types/node": "^22",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10",
-    "eslint": "^8",
-    "eslint-config-next": "14.2.14",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.12",
     "jest": "^29.7.0",
     "postcss": "^8",
     "tailwindcss": "^3.4.13",
     "ts-jest": "^29.2.0",
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   }
 }

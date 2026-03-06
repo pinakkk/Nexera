@@ -1,6 +1,7 @@
 'use client';
 
 import { RunEvent, formatAgentStateLabel } from '@/lib/types';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertCircle,
   BarChart3,
@@ -40,14 +41,9 @@ const HIDDEN_STATES = new Set([
 /** Returns true if an event should be shown to the user */
 function isInteractiveEvent(event: RunEvent): boolean {
   const state = event.state.toLowerCase();
-
-  // Always hide internal states
   if (HIDDEN_STATES.has(state)) return false;
-
-  // Hide events that are purely internal scoring
   if (state.includes('guard') && !state.includes('block')) return false;
   if (state === 'complexity_scored') return false;
-
   return true;
 }
 
@@ -57,7 +53,6 @@ function friendlyMessage(event: RunEvent): string {
   const state = event.state.toLowerCase();
   const payload = event.payload;
 
-  // Research gate — show the route decision
   if (state === 'research_gate') {
     const route = (payload as any)?.gate_result?.route;
     if (route === 'CHAT_ONLY') return TEXT_CONFIG.traceTimeline.routeQuickChat;
@@ -67,7 +62,6 @@ function friendlyMessage(event: RunEvent): string {
     return event.message || TEXT_CONFIG.traceTimeline.routeClassifying;
   }
 
-  // Plan
   if (state.includes('plan_complete') || state.includes('plan')) {
     const subQs = (payload as any)?.plan?.sub_questions;
     if (Array.isArray(subQs) && subQs.length > 0) {
@@ -75,7 +69,6 @@ function friendlyMessage(event: RunEvent): string {
     }
   }
 
-  // Search
   if (state.includes('search_complete')) {
     const count = (payload as any)?.result_count;
     if (typeof count === 'number') {
@@ -83,7 +76,6 @@ function friendlyMessage(event: RunEvent): string {
     }
   }
 
-  // Fetch
   if (state.includes('fetch_complete')) {
     const fetched = (payload as any)?.fetched_count;
     const total = (payload as any)?.total_urls;
@@ -92,7 +84,6 @@ function friendlyMessage(event: RunEvent): string {
     }
   }
 
-  // Index
   if (state.includes('index_complete')) {
     const chunks = (payload as any)?.total_chunks;
     if (typeof chunks === 'number') {
@@ -100,7 +91,6 @@ function friendlyMessage(event: RunEvent): string {
     }
   }
 
-  // Retrieve
   if (state.includes('retrieve_complete')) {
     const count = (payload as any)?.evidence_count;
     if (typeof count === 'number') {
@@ -108,7 +98,6 @@ function friendlyMessage(event: RunEvent): string {
     }
   }
 
-  // Synthesize
   if (state.includes('synth')) {
     const len = (payload as any)?.report_length;
     if (typeof len === 'number') {
@@ -117,7 +106,6 @@ function friendlyMessage(event: RunEvent): string {
     return TEXT_CONFIG.traceTimeline.reportWriting;
   }
 
-  // Verification
   if (state.includes('verification_complete')) {
     const passed = (payload as any)?.overall_passed;
     return passed
@@ -125,17 +113,14 @@ function friendlyMessage(event: RunEvent): string {
       : TEXT_CONFIG.traceTimeline.reportNeedsRefine;
   }
 
-  // Refine
   if (state.includes('refine')) {
     return TEXT_CONFIG.traceTimeline.refiningReport;
   }
 
-  // Finalize
   if (state.includes('final')) {
     return TEXT_CONFIG.traceTimeline.researchComplete;
   }
 
-  // PDF
   if (state === 'pdf_generated') {
     return TEXT_CONFIG.traceTimeline.pdfGenerated;
   }
@@ -152,7 +137,6 @@ function friendlyMessage(event: RunEvent): string {
     return TEXT_CONFIG.traceTimeline.steeringAppliedGeneric;
   }
 
-  // Failed
   if (state.includes('fail') || state.includes('error')) {
     const err = (payload as any)?.error;
     if (typeof err === 'string') return err.slice(0, 120);
@@ -190,32 +174,48 @@ function stateIcon(state: string): React.ElementType {
 }
 
 function stateColor(state: string, isActive: boolean): string {
-  if (isActive) return 'bg-blue-500/12 text-blue-500 dark:text-blue-300';
+  if (isActive)
+    return 'bg-orange-500/12 text-orange-600 dark:text-orange-400 ring-1 ring-orange-500/20';
   if (state.includes('fail') || state.includes('error'))
-    return 'bg-red-500/12 text-red-500 dark:text-red-300';
+    return 'bg-red-500/10 text-red-500 dark:text-red-400';
   if (state.includes('final') || state.includes('pdf'))
-    return 'bg-emerald-500/12 text-emerald-500 dark:text-emerald-300';
+    return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
   if (state.includes('gate'))
-    return 'bg-purple-500/12 text-purple-500 dark:text-purple-300';
-  return 'bg-black/[0.04] text-neutral-600 dark:bg-white/[0.06] dark:text-neutral-300';
+    return 'bg-violet-500/10 text-violet-500 dark:text-violet-400';
+  if (state.includes('search') || state.includes('query'))
+    return 'bg-blue-500/10 text-blue-500 dark:text-blue-400';
+  if (state.includes('synth') || state.includes('refine'))
+    return 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+  return 'bg-black/[0.035] text-neutral-500 dark:bg-white/[0.055] dark:text-neutral-400';
+}
+
+function lineColor(state: string, isActive: boolean): string {
+  if (isActive) return 'bg-orange-500/30';
+  if (state.includes('final') || state.includes('pdf')) return 'bg-emerald-500/20';
+  if (state.includes('fail') || state.includes('error')) return 'bg-red-500/20';
+  return 'bg-black/[0.08] dark:bg-white/[0.08]';
 }
 
 /* ── Component ─────────────────────────────────────────────────────── */
 
 export function TraceTimeline({ events, activeState }: TraceTimelineProps) {
-  // Filter to interactive events only
   const visibleEvents = events.filter(isInteractiveEvent);
 
   if (visibleEvents.length === 0) {
     return (
-      <div className="flex h-40 items-center justify-center text-sm text-neutral-500 dark:text-neutral-400">
-        {TEXT_CONFIG.traceTimeline.waitingForEvents}
+      <div className="flex h-32 items-center justify-center">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 size={18} className="animate-spin text-orange-500/60" />
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            {TEXT_CONFIG.traceTimeline.waitingForEvents}
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-0">
+    <div className="flex flex-col gap-0.5">
       {visibleEvents.map((event, index) => {
         const Icon = stateIcon(event.state);
         const isActive = event.state === activeState;
@@ -223,47 +223,55 @@ export function TraceTimeline({ events, activeState }: TraceTimelineProps) {
         const message = friendlyMessage(event);
 
         return (
-          <div key={event.id} className="trace-item flex gap-3">
+          <motion.div
+            key={event.id}
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.25, delay: Math.min(index * 0.03, 0.3) }}
+            className="trace-item flex gap-2.5 rounded-xl px-1.5 py-1 transition-colors hover:bg-black/[0.015] dark:hover:bg-white/[0.02]"
+          >
+            {/* Icon column with connector line */}
             <div className="flex flex-col items-center">
               <div
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${stateColor(event.state, isActive)}`}
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-all ${stateColor(event.state, isActive)}`}
               >
-                <Icon
-                  size={14}
-                  strokeWidth={2}
-                  className={isActive ? 'animate-pulse' : ''}
-                />
+                {isActive ? (
+                  <Icon size={12} strokeWidth={2.25} className="animate-pulse" />
+                ) : (
+                  <Icon size={12} strokeWidth={2} />
+                )}
               </div>
               {!isLast && (
-                <div className="h-full min-h-[16px] w-px bg-black/10 dark:bg-white/10" />
+                <div className={`h-full min-h-[10px] w-px transition-colors ${lineColor(event.state, isActive)}`} />
               )}
             </div>
 
-            <div className="min-w-0 flex-1 pb-4">
-              <div className="flex items-baseline gap-2">
-                <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            {/* Content */}
+            <div className="min-w-0 flex-1 pb-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-[12px] font-semibold leading-tight ${isActive ? 'text-orange-600 dark:text-orange-400' : 'text-neutral-800 dark:text-neutral-200'}`}>
                   {formatAgentStateLabel(event.state)}
                 </span>
-                <span className="text-[11px] text-neutral-500 dark:text-neutral-500">
+                {event.iteration > 0 && (
+                  <span className="rounded-full bg-orange-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-orange-500">
+                    iter {event.iteration}
+                  </span>
+                )}
+                <span className="ml-auto text-[10px] tabular-nums text-neutral-400 dark:text-neutral-600">
                   {new Date(event.timestamp).toLocaleTimeString([], {
                     hour: '2-digit',
                     minute: '2-digit',
                     second: '2-digit',
                   })}
                 </span>
-                {event.iteration > 0 && (
-                  <span className="text-[10px] rounded-full bg-orange-500/10 text-orange-500 px-1.5 py-0.5 font-medium">
-                    iter {event.iteration}
-                  </span>
-                )}
               </div>
               {message && (
-                <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
+                <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
                   {message}
                 </p>
               )}
             </div>
-          </div>
+          </motion.div>
         );
       })}
     </div>

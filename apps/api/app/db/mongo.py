@@ -198,6 +198,7 @@ class MongoStore:
 
             self._runs.create_index([("id", asc)], unique=True)
             self._runs.create_index([("created_at", desc)])
+            self._runs.create_index([("user_id", asc), ("created_at", desc)])
             self._run_events.create_index([("id", asc)], unique=True)
             self._run_events.create_index([("run_id", asc), ("timestamp", asc)])
             self._sources.create_index([("id", asc)], unique=True)
@@ -224,10 +225,13 @@ class MongoStore:
         row = await asyncio.to_thread(self._runs.find_one, {"id": run_id}, {"_id": 1})
         return row is not None
 
-    async def list_runs(self, limit: int, offset: int) -> list[dict[str, Any]]:
+    async def list_runs(self, limit: int, offset: int, user_id: str | None = None) -> list[dict[str, Any]]:
         def _list() -> list[dict[str, Any]]:
+            query: dict[str, Any] = {}
+            if user_id:
+                query["user_id"] = user_id
             cursor = (
-                self._runs.find({}, {"_id": 0})
+                self._runs.find(query, {"_id": 0})
                 .sort("created_at", -1)
                 .skip(offset)
                 .limit(limit)

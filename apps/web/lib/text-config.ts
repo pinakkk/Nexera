@@ -28,7 +28,7 @@ export const TEXT_CONFIG = {
   home: {
     brandName: 'Nexara',
     brandDescription:
-      'Your AI-powered autonomous research agent - searches the web, builds knowledge graphs, verifies claims, and delivers comprehensive reports.',
+      'Your AI-powered autonomous research agent — ask any question and get a comprehensive, citation-backed report.',
     startingStatus: 'Starting research...',
     researchingStatus: 'Currently researching your query...',
     startFailed: 'Failed to start research. Please try again.',
@@ -37,24 +37,6 @@ export const TEXT_CONFIG = {
       'Live progress continues here while you can steer with new context from the chatbox.',
     openRun: 'Open detailed view',
     traceTitle: 'Agent Trace',
-    features: [
-      {
-        title: 'Parallel Research',
-        desc: 'Multiple search workers run simultaneously',
-      },
-      {
-        title: 'Knowledge Graph',
-        desc: 'Auto-builds entity relationships',
-      },
-      {
-        title: 'Verified Claims',
-        desc: 'CoVe pipeline fact-checks every claim',
-      },
-      {
-        title: 'Academic + Web',
-        desc: 'Searches papers, journals, and the web',
-      },
-    ],
   },
 
   researchInput: {
@@ -172,36 +154,6 @@ export const TEXT_CONFIG = {
     },
   },
 
-  history: {
-    status: {
-      pending: 'Pending',
-      running: 'Running',
-      completed: 'Completed',
-      failed: 'Failed',
-    },
-    emptyTitle: 'No research runs yet',
-    emptyDescription:
-      'Start your first research query to see your runs appear here. Each run will be tracked with its status, iterations, and results.',
-    startResearch: 'Start Research',
-    deleteRunTitle: 'Delete Run',
-    deleteRunSubtitle: 'This action cannot be undone',
-    deleteRunPrompt:
-      'Are you sure you want to delete this run? All associated data will be permanently removed.',
-    cancel: 'Cancel',
-    deleting: 'Deleting...',
-    delete: 'Delete',
-    loadFailed: 'Failed to load research history.',
-    deleteFailed: 'Failed to delete run.',
-    title: 'Research History',
-    subtitle: 'Browse and revisit past research runs',
-    filterPlaceholder: 'Filter by query...',
-    refresh: 'Refresh',
-    refreshTitle: 'Refresh',
-    noRunsMatchPrefix: 'No runs match',
-    deleteRunButtonTitle: 'Delete run',
-    justNow: 'Just now',
-  },
-
   projects: {
     title: 'Projects',
     subtitle: 'Organize your research into collections',
@@ -245,6 +197,36 @@ export const TEXT_CONFIG = {
     ],
   },
 
+  history: {
+    status: {
+      pending: 'Pending',
+      running: 'Running',
+      completed: 'Completed',
+      failed: 'Failed',
+    },
+    emptyTitle: 'No research runs yet',
+    emptyDescription:
+      'Start your first research query to see your runs appear here.',
+    startResearch: 'Start Research',
+    deleteRunTitle: 'Delete Run',
+    deleteRunSubtitle: 'This action cannot be undone',
+    deleteRunPrompt:
+      'Are you sure you want to delete this run? All associated data will be permanently removed.',
+    cancel: 'Cancel',
+    deleting: 'Deleting...',
+    delete: 'Delete',
+    loadFailed: 'Failed to load research history.',
+    deleteFailed: 'Failed to delete run.',
+    title: 'Research History',
+    subtitle: 'Browse and revisit past research runs',
+    filterPlaceholder: 'Filter by query...',
+    refresh: 'Refresh',
+    refreshTitle: 'Refresh',
+    noRunsMatchPrefix: 'No runs match',
+    deleteRunButtonTitle: 'Delete run',
+    justNow: 'Just now',
+  },
+
   settings: {
     defaultApiUrl: 'http://localhost:8000',
     defaultModel: 'auto',
@@ -272,6 +254,8 @@ export const TEXT_CONFIG = {
       appearanceDesc: 'Choose the UI theme',
       modelTitle: 'Model Preferences',
       modelDesc: 'Default model and research depth',
+      apiKeysTitle: 'API Keys',
+      apiKeysDesc: 'Bring your own API keys for full functionality',
     },
     apiBaseUrl: 'API Base URL',
     apiHelp: 'The URL where your research agent API is running.',
@@ -282,6 +266,36 @@ export const TEXT_CONFIG = {
     defaultModelHelp: 'Auto selects the best available model.',
     defaultDepthLabel: 'Default Research Depth',
     defaultDepthHelp: 'Controls how many iterations the agent performs.',
+    apiKeys: {
+      groq: {
+        label: 'Groq API Key',
+        help: 'Required for LLM inference. Powers the research agent\'s reasoning.',
+        placeholder: 'gsk_...',
+        link: 'https://console.groq.com/keys',
+        linkLabel: 'Get your free key →',
+      },
+      brightdata: {
+        label: 'Bright Data API Key',
+        help: 'Used for web search (primary). Falls back to Tavily if not set.',
+        placeholder: 'Your Bright Data API key',
+        link: 'https://brightdata.com/cp/api_tokens',
+        linkLabel: 'Get API key →',
+      },
+      tavily: {
+        label: 'Tavily API Key',
+        help: 'Used for web search (fallback when Bright Data is not configured).',
+        placeholder: 'tvly-...',
+        link: 'https://tavily.com',
+        linkLabel: 'Get free API key →',
+      },
+      cohere: {
+        label: 'Cohere API Key',
+        help: 'Optional. Enables Cohere Rerank for better search result quality.',
+        placeholder: 'Your Cohere API key',
+        link: 'https://dashboard.cohere.com/api-keys',
+        linkLabel: 'Get API key →',
+      },
+    },
   },
 
   agentStateLabels: {

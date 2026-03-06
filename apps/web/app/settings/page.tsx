@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Settings,
-  Server,
   Sparkles,
   Palette,
   Save,
@@ -15,16 +14,21 @@ import {
   Zap,
   Brain,
   Layers,
+  Key,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  ShieldCheck,
 } from 'lucide-react';
 import { useTheme } from '@/components/theme';
 import { TEXT_CONFIG } from '@/lib/text-config';
+import { getUserApiKeys, saveUserApiKeys, type UserApiKeys } from '@/lib/api';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
 interface AppSettings {
-  apiUrl: string;
   defaultModel: string;
   defaultDepth: 'quick' | 'standard' | 'deep';
 }
@@ -32,7 +36,6 @@ interface AppSettings {
 const STORAGE_KEY = 'research-agent-settings';
 
 const DEFAULT_SETTINGS: AppSettings = {
-  apiUrl: process.env.NEXT_PUBLIC_API_URL ?? TEXT_CONFIG.settings.defaultApiUrl,
   defaultModel: TEXT_CONFIG.settings.defaultModel,
   defaultDepth: TEXT_CONFIG.settings.defaultDepth as AppSettings['defaultDepth'],
 };
@@ -149,18 +152,86 @@ function Section({
 }
 
 /* ------------------------------------------------------------------ */
+/*  API Key Input                                                      */
+/* ------------------------------------------------------------------ */
+
+function ApiKeyField({
+  label,
+  help,
+  placeholder,
+  link,
+  linkLabel,
+  value,
+  onChange,
+}: {
+  label: string;
+  help: string;
+  placeholder: string;
+  link: string;
+  linkLabel: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [visible, setVisible] = useState(false);
+  const hasValue = value.trim().length > 0;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-300">{label}</label>
+        {hasValue && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+            <ShieldCheck size={11} />
+            Configured
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-neutral-500 dark:text-neutral-600">{help}</p>
+      <div className="relative">
+        <input
+          type={visible ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="glass-input font-mono text-xs pr-10"
+          autoComplete="off"
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+        >
+          {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+      </div>
+      <a
+        href={link}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 transition-colors"
+      >
+        <ExternalLink size={11} />
+        {linkLabel}
+      </a>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Page Component                                                     */
 /* ------------------------------------------------------------------ */
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [apiKeys, setApiKeys] = useState<UserApiKeys>({});
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setSettings(loadSettings());
+    setApiKeys(getUserApiKeys());
     setMounted(true);
   }, []);
 
@@ -172,6 +243,7 @@ export default function SettingsPage() {
 
   function handleSave() {
     saveSettings(settings);
+    saveUserApiKeys(apiKeys);
     showToast(TEXT_CONFIG.settings.toastSaved);
   }
 
@@ -185,11 +257,15 @@ export default function SettingsPage() {
     setSettings((prev) => ({ ...prev, [key]: value }));
   }
 
+  function updateApiKey<K extends keyof UserApiKeys>(key: K, value: string) {
+    setApiKeys((prev) => ({ ...prev, [key]: value }));
+  }
+
   if (!mounted) {
     return (
       <div className="flex min-h-screen flex-col px-4 pb-6 pt-16 sm:px-8 sm:pt-8">
         <div className="max-w-2xl space-y-6">
-          {Array.from({ length: 3 }).map((_, i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="glass-panel-solid rounded-2xl h-48 animate-pulse" />
           ))}
         </div>
@@ -236,26 +312,64 @@ export default function SettingsPage() {
 
       {/* Settings sections */}
       <div className="max-w-2xl flex-1 space-y-5">
-        {/* API Configuration */}
+        {/* API Keys (BYOAPI) */}
         <Section
-          icon={Server}
-          title={TEXT_CONFIG.settings.sections.apiTitle}
-          description={TEXT_CONFIG.settings.sections.apiDesc}
-          delay={0.1}
+          icon={Key}
+          title={TEXT_CONFIG.settings.sections.apiKeysTitle}
+          description={TEXT_CONFIG.settings.sections.apiKeysDesc}
+          delay={0.05}
         >
-          <div>
-            <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-300">{TEXT_CONFIG.settings.apiBaseUrl}</label>
-            <p className="text-xs text-neutral-500 dark:text-neutral-600 mt-0.5 mb-2">
-              {TEXT_CONFIG.settings.apiHelp}
+          <div className="rounded-xl bg-orange-50/50 dark:bg-orange-500/[0.04] border border-orange-200/50 dark:border-orange-500/10 px-4 py-3 mb-2">
+            <p className="text-xs text-orange-800 dark:text-orange-300 leading-relaxed">
+              <strong>Groq API Key is required</strong> for all LLM operations. Other keys are optional and enable additional features (web search, reranking). All keys are stored <strong>locally in your browser</strong> and sent securely with each request.
             </p>
-            <input
-              type="text"
-              value={settings.apiUrl}
-              onChange={(e) => updateSetting('apiUrl', e.target.value)}
-              placeholder={TEXT_CONFIG.settings.apiPlaceholder}
-              className="glass-input font-mono"
-            />
           </div>
+
+          <ApiKeyField
+            label={TEXT_CONFIG.settings.apiKeys.groq.label + ' (Required)'}
+            help={TEXT_CONFIG.settings.apiKeys.groq.help}
+            placeholder={TEXT_CONFIG.settings.apiKeys.groq.placeholder}
+            link={TEXT_CONFIG.settings.apiKeys.groq.link}
+            linkLabel={TEXT_CONFIG.settings.apiKeys.groq.linkLabel}
+            value={apiKeys.groqApiKey ?? ''}
+            onChange={(v) => updateApiKey('groqApiKey', v)}
+          />
+
+          <div className="h-px bg-black/[0.05] dark:bg-white/[0.05]" />
+
+          <ApiKeyField
+            label={TEXT_CONFIG.settings.apiKeys.brightdata.label + ' (Optional)'}
+            help={TEXT_CONFIG.settings.apiKeys.brightdata.help}
+            placeholder={TEXT_CONFIG.settings.apiKeys.brightdata.placeholder}
+            link={TEXT_CONFIG.settings.apiKeys.brightdata.link}
+            linkLabel={TEXT_CONFIG.settings.apiKeys.brightdata.linkLabel}
+            value={apiKeys.brightdataApiKey ?? ''}
+            onChange={(v) => updateApiKey('brightdataApiKey', v)}
+          />
+
+          <div className="h-px bg-black/[0.05] dark:bg-white/[0.05]" />
+
+          <ApiKeyField
+            label={TEXT_CONFIG.settings.apiKeys.tavily.label + ' (Optional)'}
+            help={TEXT_CONFIG.settings.apiKeys.tavily.help}
+            placeholder={TEXT_CONFIG.settings.apiKeys.tavily.placeholder}
+            link={TEXT_CONFIG.settings.apiKeys.tavily.link}
+            linkLabel={TEXT_CONFIG.settings.apiKeys.tavily.linkLabel}
+            value={apiKeys.tavilyApiKey ?? ''}
+            onChange={(v) => updateApiKey('tavilyApiKey', v)}
+          />
+
+          <div className="h-px bg-black/[0.05] dark:bg-white/[0.05]" />
+
+          <ApiKeyField
+            label={TEXT_CONFIG.settings.apiKeys.cohere.label + ' (Optional)'}
+            help={TEXT_CONFIG.settings.apiKeys.cohere.help}
+            placeholder={TEXT_CONFIG.settings.apiKeys.cohere.placeholder}
+            link={TEXT_CONFIG.settings.apiKeys.cohere.link}
+            linkLabel={TEXT_CONFIG.settings.apiKeys.cohere.linkLabel}
+            value={apiKeys.cohereApiKey ?? ''}
+            onChange={(v) => updateApiKey('cohereApiKey', v)}
+          />
         </Section>
 
         {/* Appearance */}
@@ -263,14 +377,14 @@ export default function SettingsPage() {
           icon={Palette}
           title={TEXT_CONFIG.settings.sections.appearanceTitle}
           description={TEXT_CONFIG.settings.sections.appearanceDesc}
-          delay={0.2}
+          delay={0.15}
         >
           <div className="flex items-center gap-3">
             <button
               onClick={() => setTheme('light')}
               className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all duration-200 ${theme === 'light'
-                  ? 'border-orange-500/30 bg-orange-500/[0.08] text-orange-600 dark:text-orange-400 shadow-sm'
-                  : 'border-black/[0.06] dark:border-white/[0.06] bg-white dark:bg-white/[0.02] text-neutral-700 dark:text-neutral-300 hover:border-black/[0.1] dark:hover:border-white/[0.1]'
+                ? 'border-orange-500/30 bg-orange-500/[0.08] text-orange-600 dark:text-orange-400 shadow-sm'
+                : 'border-black/[0.06] dark:border-white/[0.06] bg-white dark:bg-white/[0.02] text-neutral-700 dark:text-neutral-300 hover:border-black/[0.1] dark:hover:border-white/[0.1]'
                 }`}
             >
               <Sun size={15} />
@@ -279,8 +393,8 @@ export default function SettingsPage() {
             <button
               onClick={() => setTheme('dark')}
               className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all duration-200 ${theme === 'dark'
-                  ? 'border-orange-500/30 bg-orange-500/[0.08] text-orange-600 dark:text-orange-400 shadow-sm'
-                  : 'border-black/[0.06] dark:border-white/[0.06] bg-white dark:bg-white/[0.02] text-neutral-700 dark:text-neutral-300 hover:border-black/[0.1] dark:hover:border-white/[0.1]'
+                ? 'border-orange-500/30 bg-orange-500/[0.08] text-orange-600 dark:text-orange-400 shadow-sm'
+                : 'border-black/[0.06] dark:border-white/[0.06] bg-white dark:bg-white/[0.02] text-neutral-700 dark:text-neutral-300 hover:border-black/[0.1] dark:hover:border-white/[0.1]'
                 }`}
             >
               <Moon size={15} />
@@ -294,7 +408,7 @@ export default function SettingsPage() {
           icon={Sparkles}
           title={TEXT_CONFIG.settings.sections.modelTitle}
           description={TEXT_CONFIG.settings.sections.modelDesc}
-          delay={0.3}
+          delay={0.2}
         >
           <div>
             <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-300">{TEXT_CONFIG.settings.defaultModelLabel}</label>
@@ -333,8 +447,8 @@ export default function SettingsPage() {
                     key={opt.value}
                     onClick={() => updateSetting('defaultDepth', opt.value)}
                     className={`flex flex-col items-center gap-2 p-4 rounded-xl border text-center transition-all duration-200 ${isSelected
-                        ? 'bg-orange-500/[0.08] border-orange-500/25 shadow-sm'
-                        : 'bg-white dark:bg-white/[0.02] border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.12] dark:hover:border-white/[0.1]'
+                      ? 'bg-orange-500/[0.08] border-orange-500/25 shadow-sm'
+                      : 'bg-white dark:bg-white/[0.02] border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.12] dark:hover:border-white/[0.1]'
                       }`}
                   >
                     <DepthIcon

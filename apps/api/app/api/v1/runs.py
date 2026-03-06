@@ -1,7 +1,5 @@
 """Run management endpoints with SSE streaming support."""
 
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
@@ -9,11 +7,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.v1.health import decrement_counter, increment_counter
+from app.auth import get_user_id_from_request
 from app.db.mongo import (
     MongoStore,
     MongoUnavailableError,
@@ -27,6 +28,22 @@ from app.services.event_bus import broadcast_event, register_queue, unregister_q
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/runs")
+
+# Rate limiter for run endpoints
+_limiter = Limiter(key_func=get_remote_address)
+
+
+def _is_pdf_eligible(report_md: str, citations: list[Any], gate_route: str | None) -> bool:
+    """Return True only for detailed research outputs that warrant PDF export."""
+    normalized_route = (gate_route or "").upper()
+    if normalized_route and normalized_route != "FULL_RESEARCH":
+        return False
+
+    plain_length = len(report_md.strip())
+    citation_count = len(citations)
+    has_sections = "## " in report_md or "### " in report_md
+
+    return plain_length >= 550 and citation_count >= 2 and has_sections
 
 
 def _get_store_or_503() -> MongoStore:
@@ -222,6 +239,7 @@ async def _run_orchestrator(
     query: str,
     constraints: dict[str, Any] | None,
     mode: str,
+    settings_overrides: dict[str, str] | None = None,
 ) -> None:
     """Launch the orchestrator in the background.
 
@@ -248,6 +266,9 @@ async def _run_orchestrator(
         store = get_mongo_store()
         increment_counter("active_runs")
         settings = get_settings()
+        # Apply user-provided API key overrides if present
+        if settings_overrides:
+            settings = settings.model_copy(update=settings_overrides)
         llm = get_llm_service(settings)
 
         async def _broadcast_only_cb(
@@ -359,21 +380,38 @@ async def _run_orchestrator(
             event_callback=_broadcast_only_cb,
         )
 
-        # ── Step 5: Generate PDF if report completed ─────────────────────
+        # ── Step 5: Generate PDF only for substantial FULL_RESEARCH results ──────────
         if result.get("status") == "completed" and result.get("report_md"):
-            try:
-                pdf_path = generate_pdf_from_markdown(
-                    report_md=result["report_md"],
-                    run_id=run_id,
-                )
-                if pdf_path:
-                    await _emit_external_event(
-                        "pdf_generated",
-                        f"PDF saved: {pdf_path.name}",
-                        {"pdf_url": f"/v1/runs/{run_id}/pdf"},
+            report_md = result["report_md"]
+            citations = result.get("citations") or []
+
+            # Only generate PDF for runs that went through the full research pipeline.
+            # gate_result["route"] is always FULL_RESEARCH at this point (non-research
+            # routes return early in Step 3), so we just verify explicitly.
+            if gate_result["route"] == FULL_RESEARCH and _is_pdf_eligible(
+                report_md=report_md,
+                citations=citations,
+                gate_route=gate_result["route"],
+            ):
+                try:
+                    pdf_path = generate_pdf_from_markdown(
+                        report_md=report_md,
+                        run_id=run_id,
                     )
-            except Exception as pdf_exc:
-                logger.warning("PDF generation failed for run %s: %s", run_id, pdf_exc)
+                    if pdf_path:
+                        await _emit_external_event(
+                            "pdf_generated",
+                            f"PDF saved: {pdf_path.name}",
+                            {"pdf_url": f"/v1/runs/{run_id}/pdf"},
+                        )
+                except Exception as pdf_exc:
+                    logger.warning("PDF generation failed for run %s: %s", run_id, pdf_exc)
+            else:
+                logger.info(
+                    "Skipping PDF for run %s (gate_route=%s, likely short/non-research output)",
+                    run_id,
+                    gate_result["route"],
+                )
 
             increment_counter("completed_runs")
         else:
@@ -414,12 +452,17 @@ async def _run_orchestrator(
 # ---------------------------------------------------------------------------
 
 
+from fastapi import APIRouter, HTTPException, Query, Request, Body
+
 @router.post("", response_model=RunCreateResponse)
-async def create_run(body: RunCreateRequest) -> RunCreateResponse:
+@_limiter.limit("5/minute")
+async def create_run(request: Request, body: RunCreateRequest = Body(...)) -> RunCreateResponse:
     """Create a new research run and launch the orchestrator in the background."""
     store = _get_store_or_503()
     run_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
+
+    user_id = get_user_id_from_request(request)
 
     constraints_json = body.constraints.model_dump() if body.constraints else None
     await _db_or_503(
@@ -427,6 +470,7 @@ async def create_run(body: RunCreateRequest) -> RunCreateResponse:
         store.create_run(
             {
                 "id": run_id,
+                "user_id": user_id,
                 "query": body.query,
                 "constraints_json": constraints_json,
                 "status": "pending",
@@ -449,12 +493,21 @@ async def create_run(body: RunCreateRequest) -> RunCreateResponse:
     from app.services.orchestrator import register_steering_channel
     register_steering_channel(run_id)
 
+    # Capture user-provided API keys from request headers
+    from app.user_keys import _HEADER_MAP
+    user_overrides: dict[str, str] = {}
+    for header_name, field_name in _HEADER_MAP.items():
+        value = request.headers.get(header_name, "").strip()
+        if value:
+            user_overrides[field_name] = value
+
     asyncio.create_task(
         _run_orchestrator(
             run_id=run_id,
             query=body.query,
             constraints=constraints_json,
             mode=body.mode,
+            settings_overrides=user_overrides or None,
         )
     )
 
@@ -658,12 +711,17 @@ async def stream_run_events(run_id: str) -> EventSourceResponse:
 
 @router.get("", response_model=list[RunStatus])
 async def list_runs(
+    request: Request,
     limit: int = Query(default=20, ge=1, le=100, description="Max runs to return"),
     offset: int = Query(default=0, ge=0, description="Runs to skip"),
 ) -> list[RunStatus]:
-    """List recent runs with pagination."""
+    """List recent runs with pagination, scoped to the authenticated user."""
     store = _get_store_or_503()
-    rows = await _db_or_503("list runs", store.list_runs(limit=limit, offset=offset))
+    user_id = get_user_id_from_request(request)
+    rows = await _db_or_503(
+        "list runs",
+        store.list_runs(limit=limit, offset=offset, user_id=user_id),
+    )
     return [_run_status_from_doc(row) for row in rows]
 
 
@@ -683,11 +741,25 @@ async def get_run_pdf(run_id: str):
     if str(row.get("status", "")) != "completed":
         raise HTTPException(status_code=400, detail="Run not yet completed")
 
+    report_md = str(row.get("report_md") or "")
+    citations = row.get("citations") if isinstance(row.get("citations"), list) else []
+    report_json = row.get("report_json") if isinstance(row.get("report_json"), dict) else {}
+    gate_route = report_json.get("gate_route") if isinstance(report_json, dict) else None
+
+    if not _is_pdf_eligible(
+        report_md=report_md,
+        citations=citations,
+        gate_route=gate_route if isinstance(gate_route, str) else None,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="PDF is only available for detailed research reports.",
+        )
+
     # Check for existing PDF
     pdf_path = get_pdf_path(run_id)
     if pdf_path is None:
         # Generate on demand
-        report_md = row.get("report_md", "")
         if not report_md:
             raise HTTPException(status_code=404, detail="No report available for this run")
         pdf_path = generate_pdf_from_markdown(report_md, run_id)

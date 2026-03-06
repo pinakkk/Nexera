@@ -44,8 +44,11 @@ def get_gate_metrics() -> dict[str, Any]:
 _GREETING_PATTERNS = re.compile(
     r"^(hi|hello|hey|yo|sup|howdy|good\s*(morning|afternoon|evening|night)|"
     r"what'?s\s*up|hola|namaste|thanks?|thank\s*you|bye|goodbye|"
-    r"ok|okay|sure|yes|no|yep|nope|cool|great|nice|got\s*it|"
-    r"hmm+|huh|lol|haha|xd|wow)[!?.,\s]*$",
+    r"ok|okay|sur|yes|no|yep|nope|cool|great|nice|got\s*it|"
+    r"hmm+|huh|lol|haha|xd|wow|bruh|bro|dude|man|"
+    r"good|bad|fine|alright|sure|right|yea|yeah|nah|"
+    r"how\s*are\s*you|how'?s\s*it\s*going|what'?s\s*good|"
+    r"gm|gn|morning|night|evening|afternoon)[\s!@#$%^&*,.?]*$",
     re.IGNORECASE,
 )
 
@@ -91,14 +94,29 @@ def _heuristic_classify(query: str) -> tuple[str | None, str, list[str]]:
     if _PROFANITY_ONLY.match(stripped):
         return CHAT_ONLY, "symbols/punctuation only", ["symbols_only"]
 
-    # Greetings / small talk
+    # Relaxed greeting test to match casual phrases
+    lower_stripped = stripped.lower().rstrip("!.,? ")
+    casual_phrases = {
+        "hi", "hello", "hi hello", "hi, hello", "hello there", "testing", "test",
+        "hi,", "hey there", "what's up", "yo", "sup", "howdy", "hey hey",
+        "good morning", "good night", "good evening", "good afternoon",
+        "how are you", "how are you doing", "how's it going", "what's good",
+        "hi there", "hello there", "hey there", "thanks", "thank you",
+        "bye", "goodbye", "see you", "see ya", "later", "peace",
+        "ok", "okay", "sure", "right", "yes", "no", "yep", "nope",
+        "cool", "nice", "great", "awesome", "good", "fine", "alright",
+        "lol", "haha", "lmao", "bruh", "bro", "dude",
+    }
+    if lower_stripped in casual_phrases:
+        return CHAT_ONLY, "greeting or acknowledgement", ["greeting"]
+
     if _GREETING_PATTERNS.match(stripped):
         return CHAT_ONLY, "greeting or acknowledgement", ["greeting"]
 
     token_count = _estimate_tokens(stripped)
 
-    # Very short casual (<=3 tokens, no question mark)
-    if token_count <= 3 and "?" not in stripped:
+    # Very short casual (<=5 tokens, no question mark)
+    if token_count <= 5 and "?" not in stripped:
         signals.append("very_short")
         if not _SIMPLE_KNOWLEDGE.match(stripped):
             return CHAT_ONLY, "very short casual input", signals

@@ -14,90 +14,167 @@ import {
 /*  API client for the Research Agent backend                          */
 /* ------------------------------------------------------------------ */
 
-const RAW_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-const SETTINGS_STORAGE_KEY = 'research-agent-settings';
-const BASE_URL = normalizeBaseUrl(RAW_BASE_URL);
-
-function normalizeBaseUrl(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return 'http://localhost:8000';
-  const withProtocol = /^https?:\/\//i.test(trimmed)
-    ? trimmed
-    : `http://${trimmed}`;
+const BASE_URL = (() => {
+  const raw = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').trim();
+  if (!raw) return 'http://localhost:8000';
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
   try {
     const parsed = new URL(withProtocol);
     return `${parsed.protocol}//${parsed.host}`;
   } catch {
     return 'http://localhost:8000';
   }
+})();
+const API_KEYS_STORAGE_KEY = 'nexara-api-keys';
+
+/* ------------------------------------------------------------------ */
+/*  Auth token management                                              */
+/* ------------------------------------------------------------------ */
+
+/** Module-level auth token getter set by the Providers component. */
+let _getAuthToken: (() => Promise<string | null>) | null = null;
+
+/** Called once from Providers to wire up Clerk's getToken. */
+export function setAuthTokenGetter(getter: () => Promise<string | null>): void {
+  _getAuthToken = getter;
 }
 
-function getBaseUrl(): string {
-  if (typeof window === 'undefined') {
-    return BASE_URL;
-  }
-
+async function getAuthHeader(): Promise<Record<string, string>> {
+  if (!_getAuthToken) return {};
   try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return BASE_URL;
-    const parsed = JSON.parse(raw) as { apiUrl?: string };
-    return parsed.apiUrl?.trim() ? normalizeBaseUrl(parsed.apiUrl) : BASE_URL;
+    const token = await _getAuthToken();
+    if (token) return { Authorization: `Bearer ${token}` };
   } catch {
-    return BASE_URL;
+    // Token unavailable (not signed in)
+  }
+  return {};
+}
+
+/* ------------------------------------------------------------------ */
+/*  User API Keys (BYOAPI)                                             */
+/* ------------------------------------------------------------------ */
+
+export interface UserApiKeys {
+  groqApiKey?: string;
+  brightdataApiKey?: string;
+  tavilyApiKey?: string;
+  cohereApiKey?: string;
+}
+
+export function getUserApiKeys(): UserApiKeys {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(API_KEYS_STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as UserApiKeys;
+  } catch {
+    return {};
   }
 }
 
-function buildNetworkError(
-  method: string,
-  primaryBaseUrl: string,
-  fallbackBaseUrl?: string,
-): Error {
-  if (fallbackBaseUrl && primaryBaseUrl !== fallbackBaseUrl) {
-    return new Error(
-      `Failed to fetch API (${method}) at ${primaryBaseUrl}. ` +
-      `Tried fallback ${fallbackBaseUrl} too. Ensure backend is running on port 8000.`,
-    );
-  }
-  return new Error(
-    `Failed to fetch API (${method}) at ${primaryBaseUrl}. ` +
-    'Ensure backend is running on port 8000.',
-  );
+export function saveUserApiKeys(keys: UserApiKeys): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(API_KEYS_STORAGE_KEY, JSON.stringify(keys));
 }
 
-async function fetchWithFallback(
+function getApiKeyHeaders(): Record<string, string> {
+  const keys = getUserApiKeys();
+  const headers: Record<string, string> = {};
+  if (keys.groqApiKey) headers['X-Groq-Api-Key'] = keys.groqApiKey;
+  if (keys.brightdataApiKey) headers['X-Brightdata-Api-Key'] = keys.brightdataApiKey;
+  if (keys.tavilyApiKey) headers['X-Tavily-Api-Key'] = keys.tavilyApiKey;
+  if (keys.cohereApiKey) headers['X-Cohere-Api-Key'] = keys.cohereApiKey;
+  return headers;
+}
+
+/* ------------------------------------------------------------------ */
+/*  User-friendly error messages                                       */
+/* ------------------------------------------------------------------ */
+
+function parseApiError(status: number, body: string): string {
+  // Try to extract detail from JSON
+  let detail = '';
+  try {
+    const parsed = JSON.parse(body);
+    const rawDetail = parsed.detail || parsed.message || '';
+    if (typeof rawDetail === 'string') {
+      detail = rawDetail;
+    } else if (Array.isArray(rawDetail)) {
+      // Handle FastAPI validation error arrays
+      detail = rawDetail.map((e: any) => e.msg || JSON.stringify(e)).join('; ');
+    } else {
+      detail = JSON.stringify(rawDetail);
+    }
+  } catch {
+    detail = String(body);
+  }
+
+  const lower = detail.toLowerCase();
+
+  // MongoDB / Database errors
+  if (lower.includes('ssl handshake failed') || lower.includes('tlsv1_alert')) {
+    return 'Unable to connect to the database. The database server may be temporarily unavailable. Please try again in a few minutes.';
+  }
+  if (lower.includes('mongo') && lower.includes('connection')) {
+    return 'Database connection issue. Please check your backend configuration or try again later.';
+  }
+  if (lower.includes('database operation failed')) {
+    return 'A database error occurred. Please try again later.';
+  }
+
+  // Auth errors
+  if (status === 401 || status === 403) {
+    return 'Authentication failed. Please check your API keys in Settings.';
+  }
+
+  // Rate limiting
+  if (status === 429) {
+    return 'Too many requests. Please wait a moment and try again.';
+  }
+
+  // Service unavailable
+  if (status === 503) {
+    return 'The service is temporarily unavailable. Please try again in a moment.';
+  }
+
+  // Not found
+  if (status === 404) {
+    return 'The requested resource was not found.';
+  }
+
+  // Server error
+  if (status >= 500) {
+    return 'An unexpected server error occurred. Please try again later.';
+  }
+
+  // Validation
+  if (status === 422) {
+    return detail || 'Invalid input. Please check your request.';
+  }
+
+  // Fallback
+  if (detail && detail.length < 200) {
+    return detail;
+  }
+
+  return `Request failed (${status}). Please try again.`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Fetch utilities                                                     */
+/* ------------------------------------------------------------------ */
+
+async function apiFetchRaw(
   path: string,
   options?: RequestInit,
 ): Promise<Response> {
-  const primaryBaseUrl = getBaseUrl();
-  const method = options?.method ?? 'GET';
-  const primaryUrl = `${primaryBaseUrl}${path}`;
-
+  const url = `${BASE_URL}${path}`;
   try {
-    return await fetch(primaryUrl, options);
-  } catch (error) {
-    const fallbackBaseUrl = BASE_URL;
-    if (primaryBaseUrl !== fallbackBaseUrl) {
-      const fallbackUrl = `${fallbackBaseUrl}${path}`;
-      try {
-        return await fetch(fallbackUrl, options);
-      } catch {
-        console.error('[apiFetch] Network error', {
-          primaryUrl,
-          fallbackUrl,
-          method,
-          error,
-        });
-        throw buildNetworkError(method, primaryBaseUrl, fallbackBaseUrl);
-      }
-    }
-
-    console.error('[apiFetch] Network error', {
-      primaryUrl,
-      method,
-      error,
-    });
-    throw buildNetworkError(method, primaryBaseUrl);
+    return await fetch(url, options);
+  } catch {
+    throw new Error(
+      'Unable to connect to the API server. Please ensure the backend is running.',
+    );
   }
 }
 
@@ -106,10 +183,13 @@ async function apiFetch<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const method = options?.method ?? 'GET';
-  const res = await fetchWithFallback(path, {
+  const apiKeyHeaders = getApiKeyHeaders();
+  const authHeaders = await getAuthHeader();
+  const res = await apiFetchRaw(path, {
     headers: {
       'Content-Type': 'application/json',
+      ...apiKeyHeaders,
+      ...authHeaders,
       ...(options?.headers ?? {}),
     },
     ...options,
@@ -117,16 +197,8 @@ async function apiFetch<T>(
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.error('[apiFetch] HTTP error', {
-      path,
-      method,
-      status: res.status,
-      statusText: res.statusText,
-      body,
-    });
-    throw new Error(
-      `API error ${res.status}: ${res.statusText}${body ? ` - ${body}` : ''}`,
-    );
+    const userMessage = parseApiError(res.status, body);
+    throw new Error(userMessage);
   }
 
   return res.json() as Promise<T>;
@@ -367,14 +439,17 @@ export async function ingestSources(
   const formData = new FormData();
   files.forEach((file) => formData.append('files', file));
 
-  const res = await fetchWithFallback('/v1/sources/ingest', {
+  const apiKeyHeaders = getApiKeyHeaders();
+  const authHeaders = await getAuthHeader();
+  const res = await apiFetchRaw('/v1/sources/ingest', {
     method: 'POST',
+    headers: { ...apiKeyHeaders, ...authHeaders },
     body: formData,
   });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`Upload error ${res.status}: ${body}`);
+    throw new Error(parseApiError(res.status, body));
   }
 
   return res.json();

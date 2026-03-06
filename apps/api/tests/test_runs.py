@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
+from app.api.v1.runs import _is_pdf_eligible
 
 
 @pytest.mark.asyncio
@@ -158,3 +159,31 @@ async def test_submit_steering_run_not_found(async_client: AsyncClient) -> None:
         json={"message": "Use only peer-reviewed sources."},
     )
     assert response.status_code == 404
+
+
+def test_pdf_eligibility_rejects_short_chat_output() -> None:
+    """PDF export should stay disabled for short conversational responses."""
+    assert _is_pdf_eligible(
+        report_md="Hi! How can I help you today?",
+        citations=[],
+        gate_route="CHAT_ONLY",
+    ) is False
+
+
+def test_pdf_eligibility_accepts_detailed_research_output() -> None:
+    """PDF export should be enabled for long, structured, citation-backed reports."""
+    report = (
+        "## Overview\n"
+        + ("This is a detailed research paragraph with findings and context. " * 20)
+        + "\n## Key Findings\n"
+        + ("Additional analysis and evidence synthesis. " * 20)
+    )
+    citations = [
+        {"id": "1", "url": "https://example.com/1", "claim_text": "a", "snippet": "b"},
+        {"id": "2", "url": "https://example.com/2", "claim_text": "a", "snippet": "b"},
+    ]
+    assert _is_pdf_eligible(
+        report_md=report,
+        citations=citations,
+        gate_route="FULL_RESEARCH",
+    ) is True
