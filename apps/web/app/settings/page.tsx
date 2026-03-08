@@ -31,6 +31,7 @@ import { getUserApiKeys, saveUserApiKeys, type UserApiKeys } from '@/lib/api';
 interface AppSettings {
   defaultModel: string;
   defaultDepth: 'quick' | 'standard' | 'deep';
+  customInstructions: string;
 }
 
 const STORAGE_KEY = 'research-agent-settings';
@@ -38,6 +39,7 @@ const STORAGE_KEY = 'research-agent-settings';
 const DEFAULT_SETTINGS: AppSettings = {
   defaultModel: TEXT_CONFIG.settings.defaultModel,
   defaultDepth: TEXT_CONFIG.settings.defaultDepth as AppSettings['defaultDepth'],
+  customInstructions: '',
 };
 
 const MODEL_OPTIONS = [
@@ -464,6 +466,30 @@ export default function SettingsPage() {
                 );
               })}
             </div>
+          </div>
+        </Section>
+
+        {/* Personalization (Custom Instructions) */}
+        <Section
+          icon={Settings} // Replace with something else if needed, Settings works
+          title={TEXT_CONFIG.settings.sections.customInstructionsTitle}
+          description={TEXT_CONFIG.settings.sections.customInstructionsDesc}
+          delay={0.25}
+        >
+          <div>
+            <label className="text-sm font-semibold text-neutral-800 dark:text-neutral-300">
+              {TEXT_CONFIG.settings.customInstructionsLabel}
+            </label>
+            <p className="text-xs text-neutral-500 dark:text-neutral-600 mt-0.5 mb-2">
+              {TEXT_CONFIG.settings.customInstructionsHelp}
+            </p>
+            <textarea
+              value={settings.customInstructions}
+              onChange={(e) => updateSetting('customInstructions', e.target.value)}
+              placeholder={TEXT_CONFIG.settings.customInstructionsPlaceholder}
+              rows={4}
+              className="glass-input w-full resize-y min-h-[100px]"
+            />
           </div>
         </Section>
       </div>

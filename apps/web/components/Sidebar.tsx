@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useAuth, UserButton, SignOutButton } from '@clerk/nextjs';
-import { usePathname } from 'next/navigation';
+import { useAuth } from '@workos-inc/authkit-nextjs/components';
+import { handleSignOut } from '@/app/actions/auth';
+import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
@@ -17,6 +18,10 @@ import {
   Trash2,
   MessageSquare,
   X,
+  Clock,
+  History,
+  Globe,
+  Cpu,
 } from 'lucide-react';
 import { useTheme } from './theme';
 import { listRuns, deleteRun } from '@/lib/api';
@@ -30,7 +35,29 @@ import { TEXT_CONFIG } from '@/lib/text-config';
 const NAV_ITEMS = [
   { href: '/', icon: Plus, label: TEXT_CONFIG.sidebar.nav.newResearch, id: 'nav-new' },
   { href: '/projects', icon: FolderOpen, label: TEXT_CONFIG.sidebar.nav.projects, id: 'nav-projects' },
+  { href: '/history', icon: History, label: 'History', id: 'nav-history' },
+  { href: '/sources', icon: Globe, label: 'Sources', id: 'nav-sources' },
+  { href: '/memory', icon: Cpu, label: 'Memory', id: 'nav-memory' },
 ];
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+function formatRunDate(dateStr: string): string {
+  try {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*  Sidebar component                                                  */
@@ -51,10 +78,13 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
-        const sidebarLogoSrc = theme === 'dark' ? '/assets/darksquare.png' : '/assets/square.png';
+  const sidebarLogoSrc = theme === 'dark' ? '/assets/darksquare.png' : '/assets/square.png';
   const [recentRuns, setRecentRuns] = useState<RunStatus[]>([]);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
-  const { isSignedIn } = useAuth();
+  const router = useRouter();
+  const { user } = useAuth();
+  const isSignedIn = !!user;
+
   useEffect(() => {
     if (!isSignedIn) {
       setRecentRuns([]);
@@ -185,35 +215,55 @@ export function Sidebar({
               </>
             )}
             <div className="mt-1 space-y-0.5">
-              {recentRuns.map((run) => (
-                <Link
-                  key={run.run_id}
-                  href={`/runs/${run.run_id}`}
-                  onClick={onCloseMobile}
-                  className={`group relative flex items-center justify-between rounded-xl px-3 py-2 text-[13px] transition-colors duration-200 ${pathname === `/runs/${run.run_id}`
-                    ? 'bg-orange-500/[0.08] font-medium text-orange-700 dark:bg-orange-500/[0.12] dark:text-orange-300'
-                    : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 hover:bg-black/[0.02] dark:hover:text-neutral-200 dark:hover:bg-white/[0.06]'
-                    }`}
-                >
-                  <div className="flex items-center gap-2.5 overflow-hidden">
-                    <MessageSquare size={14} strokeWidth={1.75} className="shrink-0 opacity-60" />
+              {recentRuns.map((run) => {
+                const isCurrentRun = pathname === `/runs/${run.run_id}`;
+                return (
+                  <Link
+                    key={run.run_id}
+                    href={`/runs/${run.run_id}`}
+                    onClick={onCloseMobile}
+                    className={`group relative flex items-center justify-between rounded-xl px-3 py-2 text-[13px] transition-all duration-200 ${isCurrentRun
+                      ? 'bg-orange-500/[0.08] font-medium text-orange-700 dark:bg-orange-500/[0.12] dark:text-orange-300'
+                      : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 hover:bg-black/[0.02] dark:hover:text-neutral-200 dark:hover:bg-white/[0.06]'
+                      }`}
+                  >
+                    <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
+                      <MessageSquare size={14} strokeWidth={1.75} className="shrink-0 opacity-60" />
+                      {!collapsed && (
+                        <div className="min-w-0 flex-1">
+                          <span className="block truncate max-w-[120px] leading-snug">
+                            {run.query || 'Research run'}
+                          </span>
+                          {run.created_at && (
+                            <span className="flex items-center gap-1 text-[10px] text-neutral-400 dark:text-neutral-600 mt-0.5">
+                              <Clock size={9} />
+                              {formatRunDate(run.created_at)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     {!collapsed && (
-                      <span className="truncate max-w-[140px]">
-                        {run.query || 'Research run'}
-                      </span>
+                      <div className="flex items-center gap-0.5 shrink-0 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); router.push(`/?continue=${run.run_id}`); onCloseMobile(); }}
+                          className="p-1 hover:bg-orange-100 dark:hover:bg-orange-500/20 rounded-md text-orange-500 hover:text-orange-600"
+                          title="Continue chat"
+                        >
+                          <MessageSquare size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => handleDeleteRun(e, run.run_id)}
+                          disabled={isDeleting === run.run_id}
+                          className="p-1 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-md text-red-500 hover:text-red-600 disabled:opacity-50"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     )}
-                  </div>
-                  {!collapsed && (
-                    <button
-                      onClick={(e) => handleDeleteRun(e, run.run_id)}
-                      disabled={isDeleting === run.run_id}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-100 dark:hover:bg-red-500/20 rounded-md text-red-500 hover:text-red-600 disabled:opacity-50 shrink-0"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </Link>
-              ))}
+                  </Link>
+                );
+              })}
             </div>
           </div>
         )}
@@ -223,20 +273,20 @@ export function Sidebar({
       <div className="mt-auto space-y-0.5 px-3 pb-4 pt-2">
         <div className="mx-3 mb-2 h-px bg-black/[0.06] dark:bg-white/[0.08]" />
 
-        {/* Clerk Auth */}
+        {/* Auth */}
         <div className="flex w-full items-center justify-between px-3 py-2">
           <div className="flex items-center gap-3">
-            {isSignedIn ? (
+            {isSignedIn && user ? (
               <>
-                <UserButton
-                  appearance={{
-                    elements: {
-                      avatarBox: 'w-7 h-7',
-                    },
-                  }}
-                />
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-100 text-xs font-semibold text-orange-700 dark:bg-orange-500/20 dark:text-orange-400">
+                  {user.firstName?.charAt(0) || user.email?.charAt(0) || 'U'}
+                </div>
                 {!collapsed && (
-                  <span className="text-[13px] font-medium text-neutral-600 dark:text-neutral-400">Account</span>
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium text-neutral-700 dark:text-neutral-300 truncate max-w-[100px]">
+                      {user.firstName || user.email?.split('@')[0] || 'Account'}
+                    </p>
+                  </div>
                 )}
               </>
             ) : (
@@ -250,14 +300,15 @@ export function Sidebar({
             )}
           </div>
           {isSignedIn && !collapsed && (
-            <SignOutButton>
+            <form action={handleSignOut}>
               <button
+                type="submit"
                 className="text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors p-1 rounded-md hover:bg-red-50 dark:hover:bg-red-500/10"
                 title="Log out"
               >
                 <LogOut size={15} strokeWidth={2} />
               </button>
-            </SignOutButton>
+            </form>
           )}
         </div>
 
@@ -359,7 +410,7 @@ export function Sidebar({
               {active && (
                 <motion.div
                   layoutId="mobile-active-dot"
-                  className="absolute right-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[#5a2d2d]"
+                  className="absolute right-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-orange-500"
                   transition={{ type: 'spring', bounce: 0.2, duration: 0.5 }}
                 />
               )}
@@ -382,30 +433,50 @@ export function Sidebar({
               Research History
             </p>
             <div className="space-y-0.5">
-              {recentRuns.map((run) => (
-                <div key={run.run_id} className="group relative flex items-center justify-between rounded-2xl px-4 py-3 text-[15px] transition-colors duration-200 hover:bg-black/[0.03] dark:hover:bg-white/[0.06]">
-                  <Link
-                    href={`/runs/${run.run_id}`}
-                    onClick={onCloseMobile}
-                    className={`flex-1 flex items-center gap-3.5 min-w-0 ${pathname === `/runs/${run.run_id}`
-                      ? 'font-semibold text-orange-700 dark:text-orange-300'
-                      : 'text-neutral-700 dark:text-neutral-300'
-                      }`}
-                  >
-                    <MessageSquare size={18} strokeWidth={1.75} className="shrink-0 opacity-60" />
-                    <span className="truncate pr-4 text-sm">
-                      {run.query || 'Research run'}
-                    </span>
-                  </Link>
-                  <button
-                    onClick={(e) => handleDeleteRun(e, run.run_id)}
-                    disabled={isDeleting === run.run_id}
-                    className="p-1.5 -mr-1.5 text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50 shrink-0"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
+              {recentRuns.map((run) => {
+                const isCurrentRun = pathname === `/runs/${run.run_id}`;
+                return (
+                  <div key={run.run_id} className="group relative flex items-center rounded-2xl transition-colors duration-200 hover:bg-black/[0.03] dark:hover:bg-white/[0.06]">
+                    <Link
+                      href={`/runs/${run.run_id}`}
+                      onClick={onCloseMobile}
+                      className={`flex-1 flex items-start gap-3 px-4 py-2.5 min-w-0 ${isCurrentRun
+                        ? 'text-orange-700 dark:text-orange-300'
+                        : 'text-neutral-700 dark:text-neutral-300'
+                        }`}
+                    >
+                      <MessageSquare size={16} strokeWidth={1.75} className="shrink-0 opacity-60 mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <span className={`block truncate text-sm leading-snug ${isCurrentRun ? 'font-semibold' : 'font-medium'}`}>
+                          {run.query || 'Research run'}
+                        </span>
+                        {run.created_at && (
+                          <span className="flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-600 mt-0.5">
+                            <Clock size={9} />
+                            {formatRunDate(run.created_at)}
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+                    <div className="flex items-center gap-1 mr-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); router.push(`/?continue=${run.run_id}`); onCloseMobile(); }}
+                        className="p-2 text-orange-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-500/10 rounded-lg transition-colors"
+                        title="Continue chat"
+                      >
+                        <MessageSquare size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => handleDeleteRun(e, run.run_id)}
+                        disabled={isDeleting === run.run_id}
+                        className="p-2 text-neutral-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -414,19 +485,24 @@ export function Sidebar({
       {/* Bottom */}
       <div className="space-y-1 px-3 pb-6 pt-3">
         <div className="mx-3 mb-2 h-px bg-black/[0.06] dark:bg-white/[0.08]" />
-        {/* Clerk Auth */}
+        {/* Auth */}
         <div className="flex items-center justify-between px-4 py-2.5">
           <div className="flex items-center gap-3">
-            {isSignedIn ? (
+            {isSignedIn && user ? (
               <>
-                <UserButton
-                  appearance={{
-                    elements: {
-                      avatarBox: 'w-9 h-9',
-                    },
-                  }}
-                />
-                <span className="text-[15px] font-semibold text-neutral-700 dark:text-neutral-300">Account</span>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-100 text-sm font-bold text-orange-700 dark:bg-orange-500/20 dark:text-orange-400">
+                  {user.firstName?.charAt(0) || user.email?.charAt(0) || 'U'}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[15px] font-semibold text-neutral-700 dark:text-neutral-300 truncate max-w-[140px]">
+                    {user.firstName || user.email?.split('@')[0] || 'Account'}
+                  </p>
+                  {user.email && (
+                    <p className="text-[11px] text-neutral-400 dark:text-neutral-500 truncate max-w-[140px]">
+                      {user.email}
+                    </p>
+                  )}
+                </div>
               </>
             ) : (
               <Link
@@ -439,14 +515,15 @@ export function Sidebar({
             )}
           </div>
           {isSignedIn && (
-            <SignOutButton>
+            <form action={handleSignOut}>
               <button
+                type="submit"
                 className="text-neutral-400 hover:text-red-500 dark:hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
                 title="Log out"
               >
                 <LogOut size={18} />
               </button>
-            </SignOutButton>
+            </form>
           )}
         </div>
         {/* Settings */}
@@ -479,22 +556,24 @@ export function Sidebar({
       <AnimatePresence>
         {mobileOpen && (
           <>
+            {/* Backdrop */}
             <motion.div
               key="mobile-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-md md:hidden"
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
               onClick={onCloseMobile}
             />
+            {/* Drawer */}
             <motion.aside
               key="mobile-sidebar"
-              initial={{ x: '-100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '-100%' }}
-              transition={{ type: 'spring', bounce: 0.08, duration: 0.4 }}
-              className="fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col bg-white font-poppins shadow-2xl shadow-black/30 dark:bg-[#0c0e14] md:hidden"
+              initial={{ x: '-100%', opacity: 0.5 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: '-100%', opacity: 0.5 }}
+              transition={{ type: 'spring', bounce: 0.05, duration: 0.38 }}
+              className="fixed inset-y-0 left-0 z-50 flex w-[300px] flex-col bg-white font-poppins shadow-2xl shadow-black/25 dark:bg-[#0c0e14] md:hidden border-r border-black/[0.06] dark:border-white/[0.05]"
             >
               {/* Close button */}
               <button

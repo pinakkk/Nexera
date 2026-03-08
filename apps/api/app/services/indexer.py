@@ -6,6 +6,8 @@ import re
 from typing import Any
 from uuid import uuid4
 
+from app.services.embedder import get_embedder
+
 logger = logging.getLogger(__name__)
 
 # Chunk parameters
@@ -212,6 +214,23 @@ class IndexerService:
 
                 if db_session is not None and not skip_chunks:
                     await self._persist_chunk(db_session, doc_id, chunk_record)
+
+        # Compute dense embeddings for all chunks
+        if all_chunks:
+            try:
+                embedder = get_embedder()
+                texts_to_embed = [c["chunk_text"] for c in all_chunks]
+                embeddings = await embedder.embed_texts(texts_to_embed)
+                for chunk_record, embedding in zip(all_chunks, embeddings):
+                    chunk_record["embedding"] = embedding
+                logger.info(
+                    "Computed embeddings for %d chunks", len(embeddings)
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to compute embeddings, chunks will lack dense vectors: %s",
+                    e,
+                )
 
         if db_session is not None:
             await db_session.flush()

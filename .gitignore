@@ -129,3 +129,4 @@ temp/
 *.bak
 *.tmp
 *.orig
+.claude/

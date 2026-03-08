@@ -19,6 +19,8 @@ class SynthesizerService:
         evidence: list[dict[str, Any]],
         citation_style: str,
         llm: LLMService,
+        chat_context: str = "",
+        memory_context: str = "",
     ) -> dict[str, Any]:
         """Generate a research report with inline citations.
 
@@ -81,10 +83,21 @@ class SynthesizerService:
                 "Include a numbered References section at the end."
             )
 
-        prompt = f"""You are an expert research report writer.
+        # Build context block from chat history and memory
+        context_block = ""
+        if chat_context or memory_context:
+            context_parts = []
+            if chat_context:
+                context_parts.append(chat_context)
+            if memory_context:
+                context_parts.append(memory_context)
+            context_block = "\n".join(context_parts) + "\n\n"
 
-Write a comprehensive research report in Markdown format based on the outline and
+        prompt = f"""You are an expert research report writer.
+{context_block}Write a comprehensive research report in Markdown format based on the outline and
 evidence provided below.  Every key claim MUST be supported by a citation.
+If there is conversation history above, use it to understand what the user is looking for
+and tailor your response accordingly. Address the user by name if known.
 
 ## Report Outline
 {outline_text}

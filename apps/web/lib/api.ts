@@ -34,7 +34,7 @@ const API_KEYS_STORAGE_KEY = 'nexara-api-keys';
 /** Module-level auth token getter set by the Providers component. */
 let _getAuthToken: (() => Promise<string | null>) | null = null;
 
-/** Called once from Providers to wire up Clerk's getToken. */
+/** Called once from Providers to wire up the WorkOS auth token getter. */
 export function setAuthTokenGetter(getter: () => Promise<string | null>): void {
   _getAuthToken = getter;
 }
@@ -132,14 +132,14 @@ function parseApiError(status: number, body: string): string {
     return 'Too many requests. Please wait a moment and try again.';
   }
 
-  // Service unavailable
+  // Service unavailable – pass through backend detail when available (e.g. model terms)
   if (status === 503) {
-    return 'The service is temporarily unavailable. Please try again in a moment.';
+    return detail || 'The service is temporarily unavailable. Please try again in a moment.';
   }
 
-  // Not found
+  // Not found – pass through backend detail when available (e.g. model not found info)
   if (status === 404) {
-    return 'The requested resource was not found.';
+    return detail || 'The requested resource was not found.';
   }
 
   // Server error
@@ -331,6 +331,8 @@ function normalizeRunStatus(raw: unknown): RunStatus {
     completed_at: finishedAt || null,
     model_name:
       typeof row.model_name === 'string' ? row.model_name : null,
+    thread_id:
+      typeof row.thread_id === 'string' ? row.thread_id : null,
   };
 }
 
@@ -377,12 +379,19 @@ function normalizeRunResult(raw: unknown): RunResult {
   const sources = normalizeSources(citations);
   const evaluation = normalizeEvaluation(row.scores || row.evaluation);
 
+  // Extract gate_route from report_json if present
+  const reportJson = typeof row.report_json === 'object' && row.report_json !== null
+    ? row.report_json as Record<string, unknown>
+    : null;
+  const gateRoute = typeof reportJson?.gate_route === 'string' ? reportJson.gate_route : null;
+
   return {
     ...base,
     report_md: typeof row.report_md === 'string' ? row.report_md : null,
     citations,
     sources,
     evaluation,
+    gate_route: gateRoute,
   };
 }
 
@@ -392,6 +401,7 @@ function normalizeRunResult(raw: unknown): RunResult {
 export async function createRun(
   query: string,
   constraints?: RunConstraints,
+  thread_id?: string,
 ): Promise<{ run_id: string }> {
   const payloadConstraints = constraints
     ? {
@@ -405,7 +415,7 @@ export async function createRun(
 
   return apiFetch<{ run_id: string }>('/v1/runs', {
     method: 'POST',
-    body: JSON.stringify({ query, constraints: payloadConstraints }),
+    body: JSON.stringify({ query, constraints: payloadConstraints, thread_id }),
   });
 }
 
@@ -413,6 +423,12 @@ export async function createRun(
 export async function getRun(runId: string): Promise<RunResult> {
   const response = await apiFetch<unknown>(`/v1/runs/${runId}`);
   return normalizeRunResult(response);
+}
+
+export async function getThreadRuns(threadId: string): Promise<RunResult[]> {
+  const response = await apiFetch<unknown[]>(`/v1/runs/thread/${threadId}`);
+  if (!Array.isArray(response)) return [];
+  return response.map(normalizeRunResult);
 }
 
 /** Get all events for a run */
@@ -529,4 +545,111 @@ export async function listAvailableModels(): Promise<AvailableModel[]> {
   } catch {
     return [];
   }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Text-to-Speech (TTS)                                               */
+/* ------------------------------------------------------------------ */
+
+/** Convert text to speech using Orpheus English via Groq.
+ *  Returns a Blob containing the audio data (wav format). */
+export async function textToSpeech(
+  text: string,
+  voice: string = 'zac',
+): Promise<Blob> {
+  const apiKeyHeaders = getApiKeyHeaders();
+  const authHeaders = await getAuthHeader();
+  const res = await apiFetchRaw('/v1/tts', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...apiKeyHeaders,
+      ...authHeaders,
+    },
+    body: JSON.stringify({ text, voice }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(parseApiError(res.status, body));
+  }
+
+  return res.blob();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Vision / Image Analysis                                            */
+/* ------------------------------------------------------------------ */
+
+/** Analyze an image using Llama 4 Scout via Groq.
+ *  Accepts an image File and an optional prompt. */
+export async function analyzeImage(
+  file: File,
+  prompt: string = 'Describe this image in detail. What do you see?',
+): Promise<{ analysis: string; model_used: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('prompt', prompt);
+
+  const apiKeyHeaders = getApiKeyHeaders();
+  const authHeaders = await getAuthHeader();
+  const res = await apiFetchRaw('/v1/vision/analyze', {
+    method: 'POST',
+    headers: { ...apiKeyHeaders, ...authHeaders },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(parseApiError(res.status, body));
+  }
+
+  return res.json();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Memory System                                                       */
+/* ------------------------------------------------------------------ */
+
+export async function listMemories(
+  category?: string,
+  limit: number = 50,
+): Promise<{ id: string; category: string; content: string; confidence: number; created_at: string }[]> {
+  const params = new URLSearchParams();
+  if (category) params.set('category', category);
+  params.set('limit', String(limit));
+  const res = await apiFetch<{ memories: { id: string; category: string; content: string; confidence: number; created_at: string }[] }>(`/v1/memory/?${params.toString()}`);
+  return res.memories ?? [];
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  await apiFetch(`/v1/memory/${memoryId}`, { method: 'DELETE' });
+}
+
+export async function getMemoryStats(): Promise<{ total: number; by_category: Record<string, number> }> {
+  return apiFetch('/v1/memory/stats');
+}
+
+export async function listTrustedSources(): Promise<{ id: string; domain: string; label: string | null; trust_level: number }[]> {
+  const res = await apiFetch<{ sources: { id: string; domain: string; label: string | null; trust_level: number }[] }>('/v1/memory/trusted-sources');
+  return res.sources ?? [];
+}
+
+export async function addTrustedSource(
+  domain: string,
+  label?: string,
+  trustLevel?: number,
+): Promise<{ id: string; domain: string }> {
+  return apiFetch('/v1/memory/trusted-sources', {
+    method: 'POST',
+    body: JSON.stringify({
+      domain,
+      label: label || null,
+      trust_level: trustLevel ?? 1.0,
+    }),
+  });
+}
+
+export async function removeTrustedSource(sourceId: string): Promise<void> {
+  await apiFetch(`/v1/memory/trusted-sources/${sourceId}`, { method: 'DELETE' });
 }

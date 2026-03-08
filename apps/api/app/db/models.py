@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -19,6 +20,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+try:
+    from pgvector.sqlalchemy import Vector
+except ImportError:
+    Vector = None  # pgvector not installed; vector columns will be None type
 
 from app.db.database import Base
 
@@ -41,6 +47,9 @@ class Run(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, default=_new_uuid
     )
+    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    thread_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    gate_route: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     query: Mapped[str] = mapped_column(Text, nullable=False)
     constraints_json: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSON, nullable=True
@@ -176,6 +185,9 @@ class Chunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    embedding: Mapped[Optional[list[float]]] = mapped_column(
+        Vector(384) if Vector else Text, nullable=True
+    )
     metadata_json: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSON, nullable=True
     )
@@ -419,3 +431,93 @@ class VerificationResult(Base):
 
     def __repr__(self) -> str:
         return f"<VerificationResult id={self.id!s} run={self.run_id!s} passed={self.overall_passed}>"
+
+
+# ---------------------------------------------------------------------------
+# Research Session – groups runs into multi-turn conversations
+# ---------------------------------------------------------------------------
+class ResearchSession(Base):
+    __tablename__ = "research_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_new_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    title: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    run_ids: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
+    context_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<ResearchSession id={self.id!s} user={self.user_id!r}>"
+
+
+# ---------------------------------------------------------------------------
+# Trusted Source – user-curated reliable domains/URLs
+# ---------------------------------------------------------------------------
+class TrustedSource(Base):
+    __tablename__ = "trusted_sources"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_new_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    domain: Mapped[str] = mapped_column(String(512), nullable=False)
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    trust_level: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "domain", name="uq_trusted_source_user_domain"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<TrustedSource id={self.id!s} domain={self.domain!r}>"
+
+
+# ---------------------------------------------------------------------------
+# Memory Entry – persistent cross-session facts and insights
+# ---------------------------------------------------------------------------
+class MemoryEntry(Base):
+    __tablename__ = "memory_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_new_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(
+        String(50), nullable=False, index=True
+    )  # fact | source_pref | reasoning_trace | run_summary
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[Optional[list[float]]] = mapped_column(
+        Vector(384) if Vector else Text, nullable=True
+    )
+    source_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    access_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<MemoryEntry id={self.id!s} cat={self.category!r}>"
+
+
+# ---------------------------------------------------------------------------
+# Query Log – tracks what the user has researched
+# ---------------------------------------------------------------------------
+class QueryLog(Base):
+    __tablename__ = "query_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_new_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )

@@ -1,29 +1,36 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { authkitMiddleware } from '@workos-inc/authkit-nextjs';
 
-// Public routes that don't require authentication
-const isPublicRoute = createRouteMatcher([
-    '/',
-    '/sign-in(.*)',
-    '/sign-up(.*)',
-    '/api(.*)',
-]);
-
-const withClerk = clerkMiddleware(async (auth, request) => {
-    // Don't protect public routes
-    if (isPublicRoute(request)) {
-        return;
-    }
-    // Protect all other routes — redirect to sign-in if not authenticated
-    await auth.protect();
+/**
+ * WorkOS AuthKit middleware.
+ *
+ * unauthenticatedPaths: routes that do NOT require authentication.
+ * Everything else (e.g. /runs/*, /settings, /projects) is protected.
+ *
+ * NOTE: WorkOS AuthKit uses glob-style matching, NOT regex.
+ * Patterns like `(.*)` or `(?!...)` will cause parse errors.
+ */
+export default authkitMiddleware({
+    middlewareAuth: {
+        enabled: true,
+        unauthenticatedPaths: [
+            // Public pages
+            '/',
+            '/sign-in',
+            '/sign-up',
+            // Auth flow routes (must be public so the redirect loop is avoided)
+            '/api/auth/login',
+            '/api/auth/callback',
+            '/callback',
+            // API routes (they handle their own auth via API key headers)
+            '/api/auth/token',
+            '/api/db/:path*',
+        ],
+    },
 });
-
-export default withClerk;
 
 export const config = {
     matcher: [
-        // Skip Next.js internals and static files
-        '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
-        // Always run for API routes
-        '/(api|trpc)(.*)',
+        // Match all paths except Next.js internals and static files
+        '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|assets/.*).*)',
     ],
 };

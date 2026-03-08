@@ -60,8 +60,7 @@ export const TEXT_CONFIG = {
     submitDefault: 'Research',
     voiceTitleStart: 'Voice dictation',
     voiceTitleStop: 'Stop recording',
-    keyboardHintPrefix: 'Press',
-    keyboardHintSuffix: 'to submit',
+    keyboardHint: 'Press \u2318+Enter to submit',
     steeredUserLabel: 'You',
   },
 
@@ -254,6 +253,8 @@ export const TEXT_CONFIG = {
       appearanceDesc: 'Choose the UI theme',
       modelTitle: 'Model Preferences',
       modelDesc: 'Default model and research depth',
+      customInstructionsTitle: 'Personalization',
+      customInstructionsDesc: 'Define system prompts or custom instructions to set your agent\'s behavior and context across conversations.',
       apiKeysTitle: 'API Keys',
       apiKeysDesc: 'Bring your own API keys for full functionality',
     },
@@ -266,6 +267,9 @@ export const TEXT_CONFIG = {
     defaultModelHelp: 'Auto selects the best available model.',
     defaultDepthLabel: 'Default Research Depth',
     defaultDepthHelp: 'Controls how many iterations the agent performs.',
+    customInstructionsLabel: 'System Prompt / Custom Instructions',
+    customInstructionsHelp: 'Write instructions that will persist across your chats.',
+    customInstructionsPlaceholder: 'E.g., "Always call me Pinak and write concise answers".',
     apiKeys: {
       groq: {
         label: 'Groq API Key',

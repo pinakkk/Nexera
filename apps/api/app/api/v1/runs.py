@@ -148,6 +148,7 @@ def _run_result_from_doc(doc: dict[str, Any]) -> RunResult:
             doc.get("scores_json") if isinstance(doc.get("scores_json"), dict) else None
         ),
         citations=_parse_citations(doc.get("citations")),
+        thread_id=(str(doc.get("thread_id")) if doc.get("thread_id") else None),
     )
 
 
@@ -168,6 +169,7 @@ def _run_status_from_doc(doc: dict[str, Any]) -> RunStatus:
             if doc.get("model_name") is not None
             else None
         ),
+        thread_id=(str(doc.get("thread_id")) if doc.get("thread_id") else None),
     )
 
 
@@ -185,6 +187,7 @@ class RunCreateRequest(BaseModel):
         default="auto",
         description="Run mode: 'auto', 'quick', or 'deep'.",
     )
+    thread_id: str | None = Field(default=None, description="Thread ID to group runs.")
 
 
 class RunCreateResponse(BaseModel):
@@ -240,6 +243,7 @@ async def _run_orchestrator(
     constraints: dict[str, Any] | None,
     mode: str,
     settings_overrides: dict[str, str] | None = None,
+    user_id: str | None = None,
 ) -> None:
     """Launch the orchestrator in the background.
 
@@ -378,6 +382,7 @@ async def _run_orchestrator(
             query=query,
             constraints=merged_constraints,
             event_callback=_broadcast_only_cb,
+            user_id=user_id,
         )
 
         # ── Step 5: Generate PDF only for substantial FULL_RESEARCH results ──────────
@@ -484,6 +489,7 @@ async def create_run(request: Request, body: RunCreateRequest = Body(...)) -> Ru
                 "report_json": None,
                 "scores_json": None,
                 "citations": [],
+                "thread_id": body.thread_id or run_id,
             }
         ),
     )
@@ -508,6 +514,7 @@ async def create_run(request: Request, body: RunCreateRequest = Body(...)) -> Ru
             constraints=constraints_json,
             mode=body.mode,
             settings_overrides=user_overrides or None,
+            user_id=user_id,
         )
     )
 
@@ -525,6 +532,20 @@ async def get_run(run_id: str) -> RunResult:
         raise HTTPException(status_code=404, detail="Run not found")
 
     return _run_result_from_doc(row)
+
+
+@router.get("/thread/{thread_id}", response_model=list[RunResult])
+async def get_thread_runs(thread_id: str) -> list[RunResult]:
+    """Return all runs belonging to a specific thread."""
+    thread_id = _canonical_uuid(thread_id)
+    store = _get_store_or_503()
+
+    rows = await _db_or_503("read thread runs", store.get_thread_runs(thread_id))
+    
+    # Sort them by created_at ascending (oldest to newest)
+    rows.sort(key=lambda x: x.get("created_at") or datetime.min)
+    return [_run_result_from_doc(doc) for doc in rows]
+
 
 
 @router.delete("/{run_id}")

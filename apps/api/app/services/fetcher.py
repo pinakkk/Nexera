@@ -10,7 +10,7 @@ import socket
 from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 import trafilatura
@@ -239,3 +239,19 @@ class FetcherService:
             "content_type": "pdf",
             "fetched_at": fetched_at,
         }
+
+
+async def is_already_fetched(url: str, fetched_urls: set[str] | None = None) -> bool:
+    """Check if a URL has already been fetched in this session."""
+    if not fetched_urls:
+        return False
+    # Normalize URL for comparison
+    parsed = urlparse(url)
+    normalized = urlunparse((parsed.scheme, parsed.netloc, parsed.path.rstrip('/'), '', '', ''))
+    return normalized in fetched_urls
+
+
+def normalize_url(url: str) -> str:
+    """Normalize a URL for deduplication comparison."""
+    parsed = urlparse(url)
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path.rstrip('/'), '', '', ''))

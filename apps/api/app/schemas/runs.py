@@ -36,6 +36,14 @@ class RunConstraints(BaseModel):
         default=None,
         description="Override the default LLM model for this run.",
     )
+    custom_instructions: Optional[str] = Field(
+        default=None,
+        description="Custom system prompts to apply.",
+    )
+    chat_history: Optional[list[dict[str, str]]] = Field(
+        default=None,
+        description="Context of the conversation.",
+    )
 
 
 class RunCreate(BaseModel):
@@ -61,6 +69,7 @@ class RunStatus(BaseModel):
     finished_at: Optional[datetime] = None
     iteration_count: int = 0
     model_name: Optional[str] = None
+    thread_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -91,5 +100,6 @@ class RunResult(BaseModel):
     report_json: Optional[dict[str, Any]] = None
     scores: Optional[dict[str, Any]] = None
     citations: Optional[list[CitationOut]] = None
+    thread_id: Optional[str] = None
 
     model_config = {"from_attributes": True}

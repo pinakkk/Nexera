@@ -26,11 +26,14 @@ export interface RunConstraints {
   allowed_domains?: string[];
   citation_style?: 'numbered' | 'author-date';
   max_iterations?: number;
+  custom_instructions?: string;
+  chat_history?: { role: string; content: string }[];
 }
 
 export interface RunCreate {
   query: string;
   constraints?: RunConstraints;
+  thread_id?: string;
 }
 
 export type RunStatusValue = 'pending' | 'running' | 'completed' | 'failed';
@@ -46,6 +49,7 @@ export interface RunStatus {
   updated_at: string;
   completed_at: string | null;
   model_name: string | null;
+  thread_id: string | null;
 }
 
 export interface RunResult extends RunStatus {
@@ -53,6 +57,7 @@ export interface RunResult extends RunStatus {
   citations: Citation[];
   sources: Source[];
   evaluation: EvaluationScores | null;
+  gate_route: string | null;
 }
 
 /* ---------- Events ---------- */
@@ -108,4 +113,42 @@ export interface AvailableModel {
   id: string;
   owned_by?: string | null;
   is_default?: boolean;
+}
+
+/* ---------- Memory System ---------- */
+
+export interface MemoryEntry {
+  id: string;
+  user_id: string;
+  category: 'fact' | 'source_pref' | 'reasoning_trace' | 'run_summary';
+  content: string;
+  source_run_id: string | null;
+  confidence: number;
+  access_count: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrustedSource {
+  id: string;
+  user_id: string;
+  domain: string;
+  label: string | null;
+  trust_level: number;
+  created_at: string;
+}
+
+export interface MemoryStats {
+  total: number;
+  by_category: Record<string, number>;
+}
+
+export interface ResearchSession {
+  id: string;
+  user_id: string;
+  title: string | null;
+  run_ids: string[];
+  created_at: string;
+  updated_at: string;
 }

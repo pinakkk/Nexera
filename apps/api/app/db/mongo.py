@@ -181,6 +181,10 @@ class MongoStore:
         self._runs = self._db["runs"]
         self._run_events = self._db["run_events"]
         self._sources = self._db["sources"]
+        self._memory_entries = self._db["memory_entries"]
+        self._trusted_sources = self._db["trusted_sources"]
+        self._research_sessions = self._db["research_sessions"]
+        self._query_logs = self._db["query_logs"]
 
     async def ping(self) -> None:
         await asyncio.to_thread(self._client.admin.command, "ping")
@@ -203,6 +207,12 @@ class MongoStore:
             self._run_events.create_index([("run_id", asc), ("timestamp", asc)])
             self._sources.create_index([("id", asc)], unique=True)
             self._sources.create_index([("created_at", desc)])
+            self._memory_entries.create_index([("user_id", asc), ("category", asc)])
+            self._memory_entries.create_index([("user_id", asc), ("created_at", desc)])
+            self._trusted_sources.create_index([("user_id", asc)], unique=False)
+            self._trusted_sources.create_index([("user_id", asc), ("domain", asc)], unique=True)
+            self._research_sessions.create_index([("user_id", asc), ("created_at", desc)])
+            self._query_logs.create_index([("user_id", asc), ("created_at", desc)])
 
         await asyncio.to_thread(_create)
 
@@ -227,18 +237,32 @@ class MongoStore:
 
     async def list_runs(self, limit: int, offset: int, user_id: str | None = None) -> list[dict[str, Any]]:
         def _list() -> list[dict[str, Any]]:
-            query: dict[str, Any] = {}
+            match: dict[str, Any] = {}
             if user_id:
-                query["user_id"] = user_id
-            cursor = (
-                self._runs.find(query, {"_id": 0})
-                .sort("created_at", -1)
-                .skip(offset)
-                .limit(limit)
-            )
+                match["user_id"] = user_id
+                
+            pipeline = [
+                {"$match": match},
+                {"$sort": {"created_at": -1}},
+                {"$group": {
+                    "_id": {"$ifNull": ["$thread_id", "$id"]},
+                    "doc": {"$first": "$$ROOT"}
+                }},
+                {"$replaceRoot": {"newRoot": "$doc"}},
+                {"$sort": {"created_at": -1}},
+                {"$skip": offset},
+                {"$limit": limit}
+            ]
+            
+            cursor = self._runs.aggregate(pipeline)
             return list(cursor)
 
         return await asyncio.to_thread(_list)
+
+    async def get_thread_runs(self, thread_id: str) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            lambda: list(self._runs.find({"thread_id": thread_id}, {"_id": 0}))
+        )
 
     async def update_run_final(
         self,

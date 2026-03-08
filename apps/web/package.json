@@ -14,8 +14,8 @@
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
-    "@clerk/nextjs": "^7.0.1",
     "@prisma/client": "^6.16.3",
+    "@workos-inc/authkit-nextjs": "^2.15.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.35.0",
     "lucide-react": "^0.577.0",

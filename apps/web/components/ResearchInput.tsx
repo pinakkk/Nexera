@@ -578,12 +578,8 @@ export function ResearchInput({
       </div>
 
       {/* Keyboard hint */}
-      <p className="mt-2.5 text-center text-[11px] text-neutral-400 dark:text-neutral-700">
-        {TEXT_CONFIG.researchInput.keyboardHintPrefix}{' '}
-        <kbd className="px-1.5 py-0.5 rounded bg-black/[0.04] dark:bg-white/[0.04] font-mono text-[10px]">\u2318</kbd>
-        <span className="mx-0.5">+</span>
-        <kbd className="px-1.5 py-0.5 rounded bg-black/[0.04] dark:bg-white/[0.04] font-mono text-[10px]">Enter</kbd>
-        {' '}{TEXT_CONFIG.researchInput.keyboardHintSuffix}
+      <p className="mt-2.5 text-center text-[11px] text-neutral-400 dark:text-neutral-700 whitespace-pre-wrap">
+        {TEXT_CONFIG.researchInput.keyboardHint}
       </p>
     </div>
   );

@@ -84,12 +84,35 @@ class Settings(BaseSettings):
     STT_MODEL: str = "whisper-large-v3-turbo"
     STT_FALLBACK_MODEL: str = "whisper-large-v3"
 
+    # ── Text-to-Speech (TTS) ─────────────────────────────────────────────────
+    TTS_MODEL: str = "canopylabs/orpheus-v1-english"
+
+    # ── Vision / Multimodal ──────────────────────────────────────────────────
+    VISION_MODEL: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+
     # ── PDF Reports ──────────────────────────────────────────────────────────
     REPORTS_DIR: str = "reports"
 
-    # ── Clerk Authentication ──────────────────────────────────────────────────
-    CLERK_SECRET_KEY: str = ""
-    CLERK_PUBLISHABLE_KEY: str = ""
+    # ── Embeddings (fastembed, ONNX) ─────────────────────────────────────
+    EMBEDDING_DIMS: int = 384
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
+    EMBEDDING_CACHE_DIR: str = ".fastembed_cache"
+
+    # ── Reranker (flashrank, ONNX, no API key) ───────────────────────────
+    RERANKER_MODEL: str = "ms-marco-MiniLM-L-12-v2"
+    RERANKER_TOP_N: int = 10
+    RERANKER_ENABLED: bool = True
+
+    # ── Persistent Memory ────────────────────────────────────────────────
+    MEMORY_ENABLED: bool = True
+    MEMORY_MAX_ENTRIES: int = 100
+    MEMORY_TOP_K: int = 5
+
+    # ── Postgres URL (separate from MongoDB DATABASE_URL) ────────────────
+    POSTGRES_URL: str = ""
+
+    # ── Authentication (WorkOS — managed on Next.js layer) ───────────────────
+    # No backend WorkOS keys needed; JWTs are forwarded from the frontend.
 
     model_config = {
         "env_file": ".env",

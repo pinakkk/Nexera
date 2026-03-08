@@ -196,10 +196,47 @@ function lineColor(state: string, isActive: boolean): string {
   return 'bg-black/[0.08] dark:bg-white/[0.08]';
 }
 
+/* ── Progress bar state mapping ────────────────────────────────────── */
+
+const STATE_PROGRESS: Record<string, number> = {
+  intake: 5,
+  plan: 15,
+  wait_for_user: 20,
+  research_loop: 30,
+  retrieve_evidence: 45,
+  rerank: 55,
+  kg_extract: 60,
+  synthesize: 70,
+  verify: 80,
+  refine: 85,
+  finalize: 100,
+};
+
+function getProgressPercent(activeState: string | null, events: RunEvent[]): number {
+  if (!activeState && events.length === 0) return 0;
+  // Check active state first
+  if (activeState) {
+    const lower = activeState.toLowerCase();
+    for (const [key, pct] of Object.entries(STATE_PROGRESS)) {
+      if (lower.includes(key)) return pct;
+    }
+  }
+  // Fall back to the last event state
+  for (let i = events.length - 1; i >= 0; i--) {
+    const state = events[i].state.toLowerCase();
+    for (const [key, pct] of Object.entries(STATE_PROGRESS)) {
+      if (state.includes(key)) return pct;
+    }
+  }
+  // If we have events but can't match, estimate from count
+  return Math.min(events.length * 8, 95);
+}
+
 /* ── Component ─────────────────────────────────────────────────────── */
 
 export function TraceTimeline({ events, activeState }: TraceTimelineProps) {
   const visibleEvents = events.filter(isInteractiveEvent);
+  const progressPercent = getProgressPercent(activeState, events);
 
   if (visibleEvents.length === 0) {
     return (
@@ -216,6 +253,18 @@ export function TraceTimeline({ events, activeState }: TraceTimelineProps) {
 
   return (
     <div className="flex flex-col gap-0.5">
+      {/* Progress bar */}
+      <div className="mb-2 w-full">
+        <div className="h-1 w-full rounded-full bg-black/[0.06] dark:bg-white/[0.08] overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-orange-500 to-amber-400 transition-all duration-500 ease-out"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+        <p className="mt-1 text-[10px] text-neutral-400 dark:text-neutral-500 text-right tabular-nums">
+          {progressPercent}% complete
+        </p>
+      </div>
       {visibleEvents.map((event, index) => {
         const Icon = stateIcon(event.state);
         const isActive = event.state === activeState;

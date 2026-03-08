@@ -42,6 +42,7 @@ class State(str, enum.Enum):
     WAIT_FOR_USER = "wait_for_user"
     RESEARCH_LOOP = "research_loop"
     RETRIEVE_EVIDENCE = "retrieve_evidence"
+    RERANK = "rerank"
     KG_EXTRACT = "kg_extract"
     SYNTHESIZE = "synthesize"
     VERIFY = "verify"
@@ -59,10 +60,13 @@ class OrchestratorState(TypedDict, total=False):
     """Mutable working memory carried through the state machine."""
 
     run_id: str
+    user_id: str | None
     query: str
     constraints: dict[str, Any]
     status: str
     current_state: str
+    memory_context: str  # injected from persistent memory
+    chat_context: str  # conversation history from chat_history constraint
 
     # Planning
     plan: dict[str, Any]  # {sub_questions, outline, focus_areas}
@@ -247,6 +251,7 @@ class Orchestrator:
         query: str,
         constraints: dict[str, Any],
         event_callback: EventCallback,
+        user_id: str | None = None,
     ) -> OrchestratorState:
         """Execute the full research pipeline for *run_id*."""
         # Reset per-run caches
@@ -256,10 +261,12 @@ class Orchestrator:
         state = State.INTAKE
         memory: OrchestratorState = {
             "run_id": str(run_id),
+            "user_id": user_id,
             "query": query,
             "constraints": constraints,
             "status": "running",
             "current_state": state.value,
+            "memory_context": "",
             "plan": {},
             "queries": [],
             "all_query_strings": [],
@@ -394,6 +401,8 @@ class Orchestrator:
                 return await self._handle_research_loop(memory, event_callback)
             case State.RETRIEVE_EVIDENCE:
                 return await self._handle_retrieve(memory, event_callback)
+            case State.RERANK:
+                return await self._handle_rerank(memory, event_callback)
             case State.KG_EXTRACT:
                 return await self._handle_kg_extract(memory, event_callback)
             case State.SYNTHESIZE:
@@ -427,6 +436,36 @@ class Orchestrator:
 
         memory["max_iterations"] = int(constraints["max_iterations"])
 
+        # ── Inject chat history as conversation context ──────────────────
+        chat_history = constraints.pop("chat_history", None)
+        if chat_history and isinstance(chat_history, list):
+            lines = ["## Conversation History (prior messages in this thread)\n"]
+            for msg in chat_history[-10:]:
+                role = msg.get("role", "user").capitalize()
+                content = msg.get("content", "")[:2000]
+                lines.append(f"**{role}**: {content}\n")
+            memory["chat_context"] = "\n".join(lines)
+        else:
+            memory["chat_context"] = ""
+
+        # ── Inject persistent memory context ─────────────────────────────
+        user_id = memory.get("user_id")
+        if user_id and getattr(self._settings, "MEMORY_ENABLED", False):
+            try:
+                from .memory import get_memory_service
+                mem_svc = get_memory_service()
+                memory_context = await mem_svc.get_memory_context(user_id, query)
+                if memory_context:
+                    memory["memory_context"] = memory_context
+                    logger.info("Injected %d chars of memory context", len(memory_context))
+            except Exception as exc:
+                logger.warning("Memory context injection failed: %s", exc)
+
+        # Prepend chat context to memory context so the LLM sees conversation history
+        chat_ctx = memory.get("chat_context", "")
+        if chat_ctx:
+            memory["memory_context"] = chat_ctx + "\n\n" + memory.get("memory_context", "")
+
         logger.info(
             "Intake complete – query=%r  depth=%s  max_iter=%d",
             query[:80],
@@ -451,6 +490,7 @@ class Orchestrator:
                 mode=mode,
                 constraints=memory["constraints"],
                 llm=self._llm,
+                memory_context=memory.get("memory_context", ""),
             )
         except Exception as exc:
             logger.warning("Team leader failed, falling back to planner: %s", exc)
@@ -742,6 +782,44 @@ class Orchestrator:
             {"evidence_count": total_ev},
             memory,
         )
+        return State.RERANK
+
+    async def _handle_rerank(
+        self,
+        memory: OrchestratorState,
+        event_callback: EventCallback,
+    ) -> State:
+        """Rerank evidence chunks using cross-encoder for better relevance."""
+        if not getattr(self._settings, "RERANKER_ENABLED", True):
+            return State.KG_EXTRACT
+
+        try:
+            from .reranker import get_reranker
+            reranker = get_reranker()
+            query = memory["query"]
+            top_n = getattr(self._settings, "RERANKER_TOP_N", 10)
+
+            for ev_group in memory.get("evidence", []):
+                chunks = ev_group.get("evidence", [])
+                if not chunks:
+                    continue
+                reranked = await reranker.rerank(
+                    query=query,
+                    chunks=chunks,
+                    top_n=top_n,
+                )
+                ev_group["evidence"] = reranked
+
+            await self._emit_event(
+                event_callback,
+                "rerank_complete",
+                "Evidence reranked by cross-encoder relevance",
+                {"reranker_top_n": top_n},
+                memory,
+            )
+        except Exception as exc:
+            logger.warning("Reranker failed (non-fatal), using original order: %s", exc)
+
         return State.KG_EXTRACT
 
     async def _handle_kg_extract(
@@ -843,6 +921,8 @@ class Orchestrator:
             evidence=memory["evidence"],
             citation_style=citation_style,
             llm=self._llm,
+            chat_context=memory.get("chat_context", ""),
+            memory_context=memory.get("memory_context", ""),
         )
 
         # Append KG summary if available
@@ -1188,6 +1268,23 @@ class Orchestrator:
         """Update the Run record with final report and scores."""
         scores = memory.get("verification_result", {}).get("scores", memory.get("eval_result", {}).get("scores", {}))
         citations = self._normalize_citations(memory.get("citations", []))
+
+        # ── Store run summary in persistent memory ───────────────────────
+        user_id = memory.get("user_id")
+        if user_id and memory.get("status") == "completed" and getattr(self._settings, "MEMORY_ENABLED", False):
+            try:
+                from .memory import get_memory_service
+                mem_svc = get_memory_service()
+                report_md = memory.get("report_md", "")
+                summary = report_md[:500] if report_md else ""
+                await mem_svc.store_run_summary(
+                    user_id=user_id,
+                    run_id=memory["run_id"],
+                    query=memory["query"],
+                    report_summary=summary,
+                )
+            except Exception as exc:
+                logger.warning("Failed to store run summary in memory: %s", exc)
 
         if self._run_store is not None:
             await self._run_store.update_run_final(
