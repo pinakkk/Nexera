@@ -33,12 +33,28 @@ def _build_engine() -> AsyncEngine | None:
         logger.warning("Skipping SQL engine setup because ALLOW_START_WITHOUT_DB=true")
         return None
     url = settings.DATABASE_URL
+    if not url:
+        logger.warning("DATABASE_URL is empty; SQL engine not initialized")
+        return None
+
+    connect_args: dict[str, object] = {}
+    # Supabase's connection pooler (pgBouncer, port 6543, transaction mode)
+    # is incompatible with asyncpg's prepared-statement cache. Detect the
+    # pooler host and disable statement caching so either the direct
+    # (5432) or pooled (6543) connection string works unchanged.
+    is_asyncpg = "+asyncpg" in url
+    is_pooler = "pooler.supabase.com" in url or ":6543" in url
+    if is_asyncpg and is_pooler:
+        connect_args["statement_cache_size"] = 0
+        logger.info("Supabase pooler detected; disabling asyncpg statement cache")
+
     return create_async_engine(
         url,
         echo=False,
         pool_size=5,
         max_overflow=10,
         pool_pre_ping=True,
+        connect_args=connect_args,
     )
 
 

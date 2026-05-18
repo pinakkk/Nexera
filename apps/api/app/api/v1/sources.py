@@ -13,11 +13,11 @@ from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from app.db.mongo import (
-    MongoStore,
-    MongoUnavailableError,
-    describe_mongo_error,
-    get_mongo_store,
+from app.db.store import (
+    SupabaseStore,
+    StoreUnavailableError,
+    describe_db_error,
+    get_store,
 )
 from app.schemas.sources import SourceCreate, SourceResponse
 
@@ -28,10 +28,10 @@ UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "uploads"))
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _get_store_or_503() -> MongoStore:
+def _get_store_or_503() -> SupabaseStore:
     try:
-        return get_mongo_store()
-    except MongoUnavailableError as exc:
+        return get_store()
+    except StoreUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -41,12 +41,12 @@ async def _db_or_503(action: str, operation: Any) -> Any:
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("MongoDB operation failed while trying to %s", action)
+        logger.exception("Database operation failed while trying to %s", action)
         raise HTTPException(
             status_code=503,
             detail=(
                 f"Database operation failed while attempting to {action}: "
-                f"{describe_mongo_error(exc)}"
+                f"{describe_db_error(exc)}"
             ),
         ) from exc
 

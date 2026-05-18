@@ -1,17 +1,17 @@
-"""Database package – MongoDB storage exports."""
+"""Database package – Supabase Postgres storage exports."""
 
-from app.db.mongo import (
-    MongoStore,
-    MongoUnavailableError,
-    describe_mongo_error,
-    ensure_mongo_ready,
-    get_mongo_store,
+from app.db.store import (
+    StoreUnavailableError,
+    SupabaseStore,
+    describe_db_error,
+    ensure_database_ready_store,
+    get_store,
 )
 
 __all__ = [
-    "MongoStore",
-    "MongoUnavailableError",
-    "describe_mongo_error",
-    "get_mongo_store",
-    "ensure_mongo_ready",
+    "SupabaseStore",
+    "StoreUnavailableError",
+    "describe_db_error",
+    "get_store",
+    "ensure_database_ready_store",
 ]

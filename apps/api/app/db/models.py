@@ -48,6 +48,7 @@ class Run(Base):
         primary_key=True, default=_new_uuid
     )
     user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     thread_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     gate_route: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     query: Mapped[str] = mapped_column(Text, nullable=False)
@@ -521,3 +522,57 @@ class QueryLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
+
+
+# ---------------------------------------------------------------------------
+# Thread Summary – rolling per-thread conversation memory
+# ---------------------------------------------------------------------------
+class ThreadSummary(Base):
+    __tablename__ = "thread_summaries"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_new_uuid)
+    thread_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    last_query: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    open_follow_ups: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
+    recent_queries: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "thread_id", "user_id", "session_id", name="uq_thread_summary_scope"
+        ),
+        Index("ix_thread_summaries_thread_user", "thread_id", "user_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ThreadSummary id={self.id!s} thread={self.thread_id!r}>"
+
+
+# ---------------------------------------------------------------------------
+# Fetched URL – dedup of URLs already fetched per actor (user or session)
+# ---------------------------------------------------------------------------
+class FetchedUrl(Base):
+    __tablename__ = "fetched_urls"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_new_uuid)
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("actor_id", "url", name="uq_fetched_url_actor_url"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<FetchedUrl actor={self.actor_id!r}>"

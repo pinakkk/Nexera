@@ -19,7 +19,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app.config import get_settings
-from app.db.mongo import ensure_mongo_ready
+from app.db.store import ensure_database_ready_store
 from app.services.integrations import log_api_integration_status
 from app.user_keys import apply_user_keys, clear_request_settings
 
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "starting in degraded mode. DB-backed routes may fail."
         )
     else:
-        await ensure_mongo_ready()
+        await ensure_database_ready_store()
 
     if settings.INTEGRATION_CHECK_ON_STARTUP and not settings.ALLOW_START_WITHOUT_DB:
         await log_api_integration_status(settings)

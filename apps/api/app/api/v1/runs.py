@@ -15,11 +15,11 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.v1.health import decrement_counter, increment_counter
 from app.auth import get_request_actor, require_request_actor
-from app.db.mongo import (
-    MongoStore,
-    MongoUnavailableError,
-    describe_mongo_error,
-    get_mongo_store,
+from app.db.store import (
+    SupabaseStore,
+    StoreUnavailableError,
+    describe_db_error,
+    get_store,
 )
 from app.schemas.events import RunEventResponse
 from app.schemas.runs import CitationOut, RunConstraints, RunResult, RunStatus
@@ -53,10 +53,10 @@ def _is_pdf_eligible(report_md: str, citations: list[Any], gate_route: str | Non
     return plain_length >= 550 and citation_count >= 2 and has_sections
 
 
-def _get_store_or_503() -> MongoStore:
+def _get_store_or_503() -> SupabaseStore:
     try:
-        return get_mongo_store()
-    except MongoUnavailableError as exc:
+        return get_store()
+    except StoreUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -66,12 +66,12 @@ async def _db_or_503(action: str, operation: Any) -> Any:
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("MongoDB operation failed while trying to %s", action)
+        logger.exception("Database operation failed while trying to %s", action)
         raise HTTPException(
             status_code=503,
             detail=(
                 f"Database operation failed while attempting to {action}: "
-                f"{describe_mongo_error(exc)}"
+                f"{describe_db_error(exc)}"
             ),
         ) from exc
 
@@ -274,10 +274,10 @@ async def _run_orchestrator(
     from app.services.llm import get_llm_service
     from app.services.pdf_generator import generate_pdf_from_markdown
 
-    store: MongoStore | None = None
+    store: SupabaseStore | None = None
     try:
         register_steering_channel(run_id)
-        store = get_mongo_store()
+        store = get_store()
         increment_counter("active_runs")
         settings = get_settings()
         # Apply user-provided API key overrides if present
@@ -347,6 +347,35 @@ async def _run_orchestrator(
             increment_counter("failed_runs")
             return
 
+        # ── Context bundle (loaded for ALL routes, not just research) ─────
+        # Short follow-ups classify as non-research; without this they were
+        # answered with no memory of the ongoing thread.
+        effective_thread_id = thread_id or run_id
+        context_bundle = {
+            "recent_chat_context": "",
+            "thread_summary_context": "",
+            "long_term_memory_context": "",
+            "counts": {},
+        }
+        if getattr(settings, "MEMORY_ENABLED", False):
+            try:
+                from app.services.memory import get_memory_service
+
+                _chat_history = (constraints or {}).get("chat_history")
+                context_bundle = await get_memory_service().get_context_bundle(
+                    query=query,
+                    thread_id=effective_thread_id,
+                    user_id=user_id,
+                    session_id=session_id,
+                    recent_chat_history=(
+                        _chat_history if isinstance(_chat_history, list) else []
+                    ),
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to load context bundle for run %s", run_id, exc_info=True
+                )
+
         # ── Step 2: Research Gate ─────────────────────────────────────────
         gate_result = {"route": FULL_RESEARCH, "reason": "gate disabled", "signals": []}
         if getattr(settings, "RESEARCH_GATE_ENABLED", True):
@@ -358,9 +387,16 @@ async def _run_orchestrator(
             {"gate_result": gate_result},
         )
 
-        # ── Step 3: Non-research routes → quick response ─────────────────
+        # ── Step 3: Non-research routes → quick response (with context) ───
         if gate_result["route"] != FULL_RESEARCH:
-            quick_response = await generate_quick_response(query, llm, gate_result["route"])
+            quick_response = await generate_quick_response(
+                query,
+                llm,
+                str(gate_result["route"]),
+                recent_chat_context=str(context_bundle.get("recent_chat_context") or ""),
+                thread_summary_context=str(context_bundle.get("thread_summary_context") or ""),
+                long_term_memory_context=str(context_bundle.get("long_term_memory_context") or ""),
+            )
             await store.update_run_final(
                 run_id=run_id, status="completed",
                 report_md=quick_response,
@@ -368,6 +404,29 @@ async def _run_orchestrator(
                 scores_json={"gate": gate_result},
                 citations=[], model_name=llm.fast_model, iteration_count=0,
             )
+            # Persist a rolling thread summary so the NEXT turn (research or
+            # not) can recall this exchange. Previously only the full-research
+            # path wrote thread summaries, so quick replies were forgotten.
+            if getattr(settings, "MEMORY_ENABLED", False):
+                try:
+                    from app.services.memory import get_memory_service
+
+                    await get_memory_service().upsert_thread_summary(
+                        thread_id=effective_thread_id,
+                        query=query,
+                        summary=(
+                            f"Q: {query}\nA: {quick_response.strip()[:1200]}"
+                        ),
+                        user_id=user_id,
+                        session_id=session_id,
+                        source_run_id=run_id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to persist thread summary for quick run %s",
+                        run_id,
+                        exc_info=True,
+                    )
             await _emit_external_event(
                 "finalize",
                 f"Quick response ({gate_result['route']})",

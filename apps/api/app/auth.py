@@ -107,12 +107,3 @@ def require_request_actor(request: Request) -> RequestActor:
             f"{ANONYMOUS_SESSION_HEADER} for anonymous usage."
         ),
     )
-
-
-def get_actor_scope_filter(actor: RequestActor) -> dict[str, str]:
-    """Build a Mongo query filter that scopes records to the current actor."""
-    if actor["user_id"]:
-        return {"user_id": actor["user_id"]}
-    if actor["session_id"]:
-        return {"session_id": actor["session_id"]}
-    return {"_id": "__no_actor__"}

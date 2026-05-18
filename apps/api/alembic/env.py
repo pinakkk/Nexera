@@ -6,6 +6,7 @@ from sqlalchemy import pool, engine_from_config
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from app.config import get_settings
 from app.db.database import Base
 from app.db import models  # noqa: F401 - ensure models are loaded
 
@@ -13,6 +14,12 @@ config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Prefer the runtime DATABASE_URL (Supabase) over the static alembic.ini value
+# so migrations always target the same database the app uses.
+_db_url = (get_settings().DATABASE_URL or "").strip()
+if _db_url:
+    config.set_main_option("sqlalchemy.url", _db_url)
 
 target_metadata = Base.metadata
 

@@ -243,13 +243,55 @@ async def classify_query(query: str, llm: Any) -> dict[str, Any]:
     return result
 
 
-async def generate_quick_response(query: str, llm: Any, route: str) -> str:
-    """Generate a quick response for non-research routes (CHAT_ONLY, DIRECT_ANSWER, LIGHT_LOOKUP)."""
+def _context_preamble(
+    recent_chat_context: str = "",
+    thread_summary_context: str = "",
+    long_term_memory_context: str = "",
+) -> str:
+    """Assemble prior-conversation context so quick replies stay coherent.
+
+    Without this, short follow-ups (which classify as non-research routes)
+    were answered with zero memory of the ongoing thread.
+    """
+    blocks = [
+        b.strip()
+        for b in (recent_chat_context, thread_summary_context, long_term_memory_context)
+        if b and b.strip()
+    ]
+    if not blocks:
+        return ""
+    return (
+        "Use the following context from the ongoing conversation to stay "
+        "consistent and avoid contradicting earlier answers. Treat it as "
+        "established unless the user corrects it.\n\n"
+        + "\n\n".join(blocks)
+        + "\n\n---\n\n"
+    )
+
+
+async def generate_quick_response(
+    query: str,
+    llm: Any,
+    route: str,
+    *,
+    recent_chat_context: str = "",
+    thread_summary_context: str = "",
+    long_term_memory_context: str = "",
+) -> str:
+    """Generate a quick response for non-research routes (CHAT_ONLY, DIRECT_ANSWER, LIGHT_LOOKUP).
+
+    Prior-conversation context is injected so follow-up turns remain coherent
+    instead of being answered in isolation.
+    """
+    context = _context_preamble(
+        recent_chat_context, thread_summary_context, long_term_memory_context
+    )
+
     if route == CHAT_ONLY:
         prompt = (
             "You are a friendly AI assistant. Respond naturally to this casual message. "
             "Keep it brief and warm.\n\n"
-            f"User: {query}"
+            f"{context}User: {query}"
         )
         return await llm.complete(prompt=prompt, task_type="fast", temperature=0.7, max_tokens=256)
 
@@ -257,7 +299,7 @@ async def generate_quick_response(query: str, llm: Any, route: str) -> str:
         prompt = (
             "You are a knowledgeable assistant. Give a clear, concise, and accurate answer. "
             "If you're not certain, say so. No need for citations.\n\n"
-            f"Question: {query}"
+            f"{context}Question: {query}"
         )
         return await llm.complete(prompt=prompt, task_type="fast", temperature=0.3, max_tokens=512)
 
@@ -265,7 +307,7 @@ async def generate_quick_response(query: str, llm: Any, route: str) -> str:
         prompt = (
             "You are a research assistant. Give a brief, factual answer with key information. "
             "Mention if the information might need verification from current sources.\n\n"
-            f"Question: {query}"
+            f"{context}Question: {query}"
         )
         return await llm.complete(prompt=prompt, task_type="smart", temperature=0.3, max_tokens=768)
 
