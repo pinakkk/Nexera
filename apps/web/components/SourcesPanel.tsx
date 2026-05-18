@@ -77,85 +77,89 @@ interface SourcesPanelProps {
 export function SourcesPanel({ sources, citations }: SourcesPanelProps) {
   if (sources.length === 0) return null;
 
+  const tierScore: Record<string, number> = {
+    reliable: 0.94,
+    moderate: 0.82,
+    unverified: 0.6,
+  };
+  const citingCount = new Set(
+    citations.map((c) => c.source_url).filter(Boolean),
+  ).size;
+
   return (
     <div>
-      <h3 className="mb-4 text-sm font-semibold text-neutral-900 dark:text-white">
-        {TEXT_CONFIG.sourcesPanel.sourcesTitle} ({sources.length})
-      </h3>
-      <div className="grid gap-2 sm:gap-3">
+      {/* Rail header */}
+      <div className="mb-1 flex items-baseline justify-between">
+        <h3 className="h-display text-base font-bold text-[rgb(var(--fg))]">
+          {TEXT_CONFIG.sourcesPanel.sourcesTitle}
+        </h3>
+        <span className="font-mono text-[11px] text-[rgb(var(--fg-subtle))]">
+          {citingCount || sources.length} citing
+        </span>
+      </div>
+      <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.12em] text-[rgb(var(--fg-subtle))]">
+        Ranked by trust × relevance
+      </p>
+
+      <div className="space-y-0.5">
         {sources.map((source, index) => {
-          const reliability = source.reliability ?? getReliability(source.domain);
+          const reliability =
+            source.reliability ?? getReliability(source.domain);
           const config = reliabilityConfig[reliability];
           const ReliabilityIcon = config.icon;
           const citationIds = citations
             .map((citation, citationIndex) => ({ citation, citationIndex }))
             .filter((entry) => entry.citation.source_url === source.url)
             .map((entry) => entry.citationIndex + 1);
+          const pct = Math.round(tierScore[reliability] * 100);
+          const initial = (source.domain || '?').charAt(0).toUpperCase();
 
           return (
-            <div
+            <a
               key={index}
-              className="flex items-start gap-2 p-2.5 rounded-xl bg-white dark:bg-[#111] border border-black/[0.06] dark:border-white/[0.06] hover:border-black/15 dark:hover:border-white/[0.1] transition-colors group sm:gap-3 sm:p-3"
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={TEXT_CONFIG.sourcesPanel.openSourceTitle}
+              className="group flex items-center gap-3 rounded-xl px-2.5 py-2.5 transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
             >
-              {/* Index number */}
-              <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-black/[0.04] dark:bg-white/[0.06] text-[11px] font-medium text-neutral-600 dark:text-neutral-500 shrink-0 mt-0.5">
-                {index + 1}
+              <span className="w-5 shrink-0 self-start pt-0.5 text-right font-mono text-[11px] text-[rgb(var(--fg-subtle))]">
+                {String(index + 1).padStart(2, '0')}
               </span>
-
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">
-                      {source.title || source.url}
-                    </p>
-                    <p className="text-[11px] text-neutral-600 dark:text-neutral-500 truncate mt-0.5">
-                      {source.domain}
-                    </p>
-                  </div>
-                  <a
-                    href={source.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 p-1 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-300 transition-colors opacity-0 group-hover:opacity-100"
-                    title={TEXT_CONFIG.sourcesPanel.openSourceTitle}
-                  >
-                    <ExternalLink size={14} strokeWidth={2} />
-                  </a>
-                </div>
-
-                {/* Meta row */}
-                <div className="flex items-center gap-2 mt-1.5">
-                  {/* Reliability badge */}
-                  <span
-                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border ${config.className}`}
-                  >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center self-start rounded-lg bg-orange-500/[0.08] font-mono text-[11px] font-bold text-orange-600 dark:text-orange-400">
+                {initial}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-semibold text-[rgb(var(--fg))]">
+                  {source.title || source.url}
+                </p>
+                <div className="mt-0.5 flex items-center gap-1.5">
+                  <span className="truncate font-mono text-[11px] text-[rgb(var(--fg-subtle))]">
+                    {source.domain}
+                  </span>
+                  <span className="text-[rgb(var(--fg-subtle))]">·</span>
+                  <span className="inline-flex items-center gap-1 font-mono text-[11px] text-[rgb(var(--fg-subtle))]">
                     <ReliabilityIcon size={10} strokeWidth={2} />
                     {config.label}
                   </span>
-
-                  {/* Fetched time */}
-                  {source.fetched_at && (
-                    <span className="text-[10px] text-neutral-600 dark:text-neutral-600">
-                      {TEXT_CONFIG.sourcesPanel.fetchedPrefix}{' '}
-                      {new Date(source.fetched_at).toLocaleDateString([], {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  )}
-
-                  {/* Citation refs */}
                   {citationIds.length > 0 && (
-                    <span className="text-[10px] text-neutral-600 dark:text-neutral-500">
-                      {TEXT_CONFIG.sourcesPanel.citedAsPrefix} [{citationIds.join(', ')}]
+                    <span className="font-mono text-[10px] text-[rgb(var(--fg-subtle))]">
+                      · [{citationIds.join(', ')}]
                     </span>
                   )}
                 </div>
               </div>
-            </div>
+              <div className="flex shrink-0 items-center gap-2 self-start pt-0.5">
+                <span className="font-mono text-[11px] font-medium text-[rgb(var(--fg-muted))]">
+                  {pct}%
+                </span>
+                <ExternalLink
+                  size={13}
+                  strokeWidth={2}
+                  className="text-[rgb(var(--fg-subtle))] opacity-0 transition-opacity group-hover:opacity-100"
+                />
+              </div>
+            </a>
           );
         })}
       </div>
