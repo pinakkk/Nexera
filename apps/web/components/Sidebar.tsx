@@ -22,6 +22,7 @@ import {
   History,
   Globe,
   Cpu,
+  ExternalLink,
 } from 'lucide-react';
 import { useTheme } from './theme';
 import { listRuns, deleteRun } from '@/lib/api';
@@ -32,12 +33,15 @@ import { TEXT_CONFIG } from '@/lib/text-config';
 /*  Nav configuration                                                  */
 /* ------------------------------------------------------------------ */
 
-const NAV_ITEMS = [
+const PRIMARY_NAV_ITEMS = [
   { href: '/', icon: Plus, label: TEXT_CONFIG.sidebar.nav.newResearch, id: 'nav-new' },
-  { href: '/projects', icon: FolderOpen, label: TEXT_CONFIG.sidebar.nav.projects, id: 'nav-projects' },
   { href: '/history', icon: History, label: 'History', id: 'nav-history' },
+];
+
+const SECONDARY_NAV_ITEMS = [
+  { href: '/projects', icon: FolderOpen, label: TEXT_CONFIG.sidebar.nav.projects, id: 'nav-projects', badge: 'Beta' },
   { href: '/sources', icon: Globe, label: 'Sources', id: 'nav-sources' },
-  { href: '/memory', icon: Cpu, label: 'Memory', id: 'nav-memory' },
+  { href: '/memory', icon: Cpu, label: 'Memory', id: 'nav-memory', badge: 'Beta' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -81,17 +85,19 @@ export function Sidebar({
   const sidebarLogoSrc = theme === 'dark' ? '/assets/darksquare.png' : '/assets/square.png';
   const [recentRuns, setRecentRuns] = useState<RunStatus[]>([]);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [continueRunId, setContinueRunId] = useState<string | null>(null);
   const router = useRouter();
   const { user } = useAuth();
   const isSignedIn = !!user;
 
   useEffect(() => {
-    if (!isSignedIn) {
-      setRecentRuns([]);
-      return;
-    }
     listRuns(20, 0).then(setRecentRuns).catch(() => { });
   }, [isSignedIn]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setContinueRunId(new URLSearchParams(window.location.search).get('continue'));
+  }, [pathname, mobileOpen]);
 
   const handleDeleteRun = async (e: React.MouseEvent, id: string) => {
     e.preventDefault();
@@ -152,7 +158,7 @@ export function Sidebar({
             Navigation
           </p>
         )}
-        {NAV_ITEMS.map((item) => {
+        {PRIMARY_NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
           const Icon = item.icon;
           return (
@@ -203,6 +209,67 @@ export function Sidebar({
           );
         })}
 
+        {!collapsed && (
+          <p className="px-3 pb-2 pt-5 text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-400 dark:text-neutral-500">
+            Workspace
+          </p>
+        )}
+        {SECONDARY_NAV_ITEMS.map((item) => {
+          const active = isActive(item.href);
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              id={item.id}
+              onClick={onCloseMobile}
+              className={`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors duration-200 ${active
+                ? 'text-orange-700 dark:text-orange-300'
+                : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'
+                }`}
+            >
+              {active && (
+                <>
+                  <motion.div
+                    layoutId="sidebar-secondary-active-bg"
+                    className="absolute inset-0 rounded-xl bg-orange-500/[0.08] dark:bg-orange-500/[0.12]"
+                    transition={{ type: 'spring', bounce: 0.2, duration: 0.5 }}
+                  />
+                  <motion.div
+                    layoutId="sidebar-secondary-active-dot"
+                    className="absolute right-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-orange-500"
+                    transition={{ type: 'spring', bounce: 0.2, duration: 0.5 }}
+                  />
+                </>
+              )}
+              <Icon
+                size={18}
+                strokeWidth={active ? 2.1 : 1.75}
+                className={`relative z-10 shrink-0 transition-transform duration-200 group-hover:scale-105 ${active ? 'text-neutral-900 dark:text-white' : ''
+                  }`}
+              />
+              <AnimatePresence initial={false}>
+                {!collapsed && (
+                  <motion.span
+                    initial={{ opacity: 0, width: 0 }}
+                    animate={{ opacity: 1, width: 'auto' }}
+                    exit={{ opacity: 0, width: 0 }}
+                    transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
+                    className="relative z-10 flex items-center gap-2 overflow-hidden whitespace-nowrap"
+                  >
+                    {item.label}
+                    {'badge' in item && item.badge ? (
+                      <span className="rounded-full border border-black/[0.08] bg-black/[0.04] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-neutral-400 dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-neutral-500">
+                        {item.badge}
+                      </span>
+                    ) : null}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </Link>
+          );
+        })}
+
         {/* Recent Chats Section */}
         {recentRuns.length > 0 && (
           <div className="mb-2 mt-6">
@@ -216,18 +283,21 @@ export function Sidebar({
             )}
             <div className="mt-1 space-y-0.5">
               {recentRuns.map((run) => {
-                const isCurrentRun = pathname === `/runs/${run.run_id}`;
+                const isCurrentRun =
+                  pathname === `/runs/${run.run_id}` || continueRunId === run.run_id;
                 return (
-                  <Link
+                  <div
                     key={run.run_id}
-                    href={`/runs/${run.run_id}`}
-                    onClick={onCloseMobile}
-                    className={`group relative flex items-center justify-between rounded-xl px-3 py-2 text-[13px] transition-all duration-200 ${isCurrentRun
+                    className={`group relative flex items-center rounded-xl text-[13px] transition-all duration-200 ${isCurrentRun
                       ? 'bg-orange-500/[0.08] font-medium text-orange-700 dark:bg-orange-500/[0.12] dark:text-orange-300'
                       : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 hover:bg-black/[0.02] dark:hover:text-neutral-200 dark:hover:bg-white/[0.06]'
                       }`}
                   >
-                    <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
+                    <Link
+                      href={`/?continue=${run.run_id}`}
+                      onClick={onCloseMobile}
+                      className="flex-1 flex items-center gap-2.5 overflow-hidden min-w-0 px-3 py-2"
+                    >
                       <MessageSquare size={14} strokeWidth={1.75} className="shrink-0 opacity-60" />
                       {!collapsed && (
                         <div className="min-w-0 flex-1">
@@ -242,9 +312,9 @@ export function Sidebar({
                           )}
                         </div>
                       )}
-                    </div>
+                    </Link>
                     {!collapsed && (
-                      <div className="flex items-center gap-0.5 shrink-0 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-0.5 shrink-0 pr-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); router.push(`/?continue=${run.run_id}`); onCloseMobile(); }}
                           className="p-1 hover:bg-orange-100 dark:hover:bg-orange-500/20 rounded-md text-orange-500 hover:text-orange-600"
@@ -252,6 +322,14 @@ export function Sidebar({
                         >
                           <MessageSquare size={12} />
                         </button>
+                        <Link
+                          href={`/runs/${run.run_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1 rounded-md text-neutral-400 transition-colors hover:bg-black/[0.05] hover:text-neutral-700 dark:hover:bg-white/[0.08] dark:hover:text-neutral-200"
+                          title="View details"
+                        >
+                          <ExternalLink size={12} />
+                        </Link>
                         <button
                           onClick={(e) => handleDeleteRun(e, run.run_id)}
                           disabled={isDeleting === run.run_id}
@@ -261,7 +339,7 @@ export function Sidebar({
                         </button>
                       </div>
                     )}
-                  </Link>
+                  </div>
                 );
               })}
             </div>
@@ -393,7 +471,7 @@ export function Sidebar({
         <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-400 dark:text-neutral-400">
           Navigation
         </p>
-        {NAV_ITEMS.map((item) => {
+        {PRIMARY_NAV_ITEMS.map((item) => {
           const active = isActive(item.href);
           const Icon = item.icon;
           return (
@@ -425,6 +503,41 @@ export function Sidebar({
           );
         })}
 
+        <p className="px-3 pb-1 pt-5 text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-400 dark:text-neutral-400">
+          Workspace
+        </p>
+        {SECONDARY_NAV_ITEMS.map((item) => {
+          const active = isActive(item.href);
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              id={`mobile-${item.id}`}
+              onClick={onCloseMobile}
+              className={`group relative flex items-center gap-3.5 rounded-2xl px-4 py-3 text-[15px] font-medium tracking-[-0.01em] transition-all duration-200 ${active
+                ? 'bg-black/[0.03] text-neutral-900 dark:bg-white/[0.06] dark:text-white'
+                : 'text-neutral-700 dark:text-neutral-300 hover:bg-black/[0.03] dark:hover:bg-white/[0.06]'
+                }`}
+            >
+              <Icon
+                size={20}
+                strokeWidth={active ? 2.25 : 1.75}
+                className={`relative z-10 shrink-0 ${active ? 'text-orange-600 dark:text-orange-400' : 'text-neutral-500 dark:text-neutral-400'
+                  }`}
+              />
+              <span className="relative z-10 flex items-center gap-2">
+                {item.label}
+                {'badge' in item && item.badge ? (
+                  <span className="rounded-full border border-black/[0.08] bg-black/[0.04] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-neutral-400 dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-neutral-500">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </span>
+            </Link>
+          );
+        })}
+
         {/* Recent Chats Section - Mobile */}
         {recentRuns.length > 0 && (
           <div className="mt-6 mb-3">
@@ -434,11 +547,12 @@ export function Sidebar({
             </p>
             <div className="space-y-0.5">
               {recentRuns.map((run) => {
-                const isCurrentRun = pathname === `/runs/${run.run_id}`;
+                const isCurrentRun =
+                  pathname === `/runs/${run.run_id}` || continueRunId === run.run_id;
                 return (
                   <div key={run.run_id} className="group relative flex items-center rounded-2xl transition-colors duration-200 hover:bg-black/[0.03] dark:hover:bg-white/[0.06]">
                     <Link
-                      href={`/runs/${run.run_id}`}
+                      href={`/?continue=${run.run_id}`}
                       onClick={onCloseMobile}
                       className={`flex-1 flex items-start gap-3 px-4 py-2.5 min-w-0 ${isCurrentRun
                         ? 'text-orange-700 dark:text-orange-300'
@@ -466,6 +580,14 @@ export function Sidebar({
                       >
                         <MessageSquare size={14} />
                       </button>
+                      <Link
+                        href={`/runs/${run.run_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-2 rounded-lg text-neutral-400 transition-colors hover:bg-black/[0.04] hover:text-neutral-700 dark:hover:bg-white/[0.08] dark:hover:text-neutral-200"
+                        title="View details"
+                      >
+                        <ExternalLink size={14} />
+                      </Link>
                       <button
                         onClick={(e) => handleDeleteRun(e, run.run_id)}
                         disabled={isDeleting === run.run_id}

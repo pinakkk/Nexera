@@ -1,5 +1,9 @@
 import { RunEvent, RunResult } from './types';
 import { getRun, normalizeRunEvent } from './api';
+import {
+  ANONYMOUS_SESSION_QUERY_PARAM,
+  getAnonymousSessionId,
+} from './request-scope';
 
 /* ------------------------------------------------------------------ */
 /*  SSE client for subscribing to run event streams                    */
@@ -57,8 +61,6 @@ export function subscribeToRun(
   runId: string,
   { onEvent, onComplete, onError }: SSECallbacks,
 ): () => void {
-  const url = `${getBaseUrl()}/v1/runs/${runId}/stream`;
-
   let eventSource: EventSource | null = null;
   let closed = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -106,10 +108,32 @@ export function subscribeToRun(
     }
   }
 
-  function connect() {
+  async function buildStreamUrl(): Promise<string> {
+    const url = new URL(`${getBaseUrl()}/v1/runs/${runId}/stream`);
+    try {
+      const res = await fetch('/api/auth/token');
+      if (res.ok) {
+        const data = (await res.json()) as { accessToken?: string };
+        if (data.accessToken) {
+          url.searchParams.set('access_token', data.accessToken);
+          return url.toString();
+        }
+      }
+    } catch {
+      // Fall through to anonymous browser session scope.
+    }
+
+    url.searchParams.set(ANONYMOUS_SESSION_QUERY_PARAM, getAnonymousSessionId());
+    return url.toString();
+  }
+
+  async function connect() {
     if (closed) return;
 
-    eventSource = new EventSource(url);
+    const streamUrl = await buildStreamUrl();
+    if (closed) return;
+
+    eventSource = new EventSource(streamUrl);
 
     eventSource.onopen = () => {
       reconnectAttempts = 0;
@@ -140,7 +164,9 @@ export function subscribeToRun(
         const delay =
           RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttempts);
         reconnectAttempts++;
-        reconnectTimer = setTimeout(connect, delay);
+        reconnectTimer = setTimeout(() => {
+          void connect();
+        }, delay);
       } else {
         onError(
           new Error(
@@ -164,7 +190,7 @@ export function subscribeToRun(
   }
 
   // Start the connection
-  connect();
+  void connect();
 
   // Return the cleanup function
   return cleanup;

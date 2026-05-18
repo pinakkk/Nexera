@@ -9,6 +9,7 @@ import {
   Source,
   AvailableModel,
 } from './types';
+import { getAnonymousSessionId } from './request-scope';
 
 /* ------------------------------------------------------------------ */
 /*  API client for the Research Agent backend                          */
@@ -48,6 +49,14 @@ async function getAuthHeader(): Promise<Record<string, string>> {
     // Token unavailable (not signed in)
   }
   return {};
+}
+
+export async function getActorHeaders(): Promise<Record<string, string>> {
+  const authHeaders = await getAuthHeader();
+  if (authHeaders.Authorization) {
+    return authHeaders;
+  }
+  return { 'X-Anonymous-Session-ID': getAnonymousSessionId() };
 }
 
 /* ------------------------------------------------------------------ */
@@ -170,7 +179,14 @@ async function apiFetchRaw(
 ): Promise<Response> {
   const url = `${BASE_URL}${path}`;
   try {
-    return await fetch(url, options);
+    const actorHeaders = await getActorHeaders();
+    return await fetch(url, {
+      ...options,
+      headers: {
+        ...actorHeaders,
+        ...(options?.headers ?? {}),
+      },
+    });
   } catch {
     throw new Error(
       'Unable to connect to the API server. Please ensure the backend is running.',
@@ -184,12 +200,12 @@ async function apiFetch<T>(
   options?: RequestInit,
 ): Promise<T> {
   const apiKeyHeaders = getApiKeyHeaders();
-  const authHeaders = await getAuthHeader();
+  const actorHeaders = await getActorHeaders();
   const res = await apiFetchRaw(path, {
     headers: {
       'Content-Type': 'application/json',
       ...apiKeyHeaders,
-      ...authHeaders,
+      ...actorHeaders,
       ...(options?.headers ?? {}),
     },
     ...options,
@@ -402,7 +418,7 @@ export async function createRun(
   query: string,
   constraints?: RunConstraints,
   thread_id?: string,
-): Promise<{ run_id: string }> {
+): Promise<{ run_id: string; thread_id: string }> {
   const payloadConstraints = constraints
     ? {
       ...constraints,
@@ -413,7 +429,7 @@ export async function createRun(
     delete payloadConstraints.model;
   }
 
-  return apiFetch<{ run_id: string }>('/v1/runs', {
+  return apiFetch<{ run_id: string; thread_id: string }>('/v1/runs', {
     method: 'POST',
     body: JSON.stringify({ query, constraints: payloadConstraints, thread_id }),
   });
@@ -456,10 +472,10 @@ export async function ingestSources(
   files.forEach((file) => formData.append('files', file));
 
   const apiKeyHeaders = getApiKeyHeaders();
-  const authHeaders = await getAuthHeader();
+  const actorHeaders = await getActorHeaders();
   const res = await apiFetchRaw('/v1/sources/ingest', {
     method: 'POST',
-    headers: { ...apiKeyHeaders, ...authHeaders },
+    headers: { ...apiKeyHeaders, ...actorHeaders },
     body: formData,
   });
 
@@ -558,13 +574,13 @@ export async function textToSpeech(
   voice: string = 'zac',
 ): Promise<Blob> {
   const apiKeyHeaders = getApiKeyHeaders();
-  const authHeaders = await getAuthHeader();
+  const actorHeaders = await getActorHeaders();
   const res = await apiFetchRaw('/v1/tts', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...apiKeyHeaders,
-      ...authHeaders,
+      ...actorHeaders,
     },
     body: JSON.stringify({ text, voice }),
   });
@@ -592,10 +608,10 @@ export async function analyzeImage(
   formData.append('prompt', prompt);
 
   const apiKeyHeaders = getApiKeyHeaders();
-  const authHeaders = await getAuthHeader();
+  const actorHeaders = await getActorHeaders();
   const res = await apiFetchRaw('/v1/vision/analyze', {
     method: 'POST',
-    headers: { ...apiKeyHeaders, ...authHeaders },
+    headers: { ...apiKeyHeaders, ...actorHeaders },
     body: formData,
   });
 

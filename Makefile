@@ -1,4 +1,7 @@
-.PHONY: dev dev-api dev-web dev-web-local check-mongo check-keys lint lint-api lint-web test test-api test-web migrate clean help setup-spacy
+.PHONY: dev dev-api dev-web dev-web-local check-db check-keys lint lint-api lint-web test test-api test-web migrate migration clean help setup-spacy
+
+API_PY := apps/api/.venv/bin/python
+API_VENV_MSG := Missing apps/api/.venv/bin/python. Create the API venv with Python 3.11 before running this target.
 
 # =============================================================================
 # Development (local — no Docker)
@@ -11,7 +14,8 @@ dev:
 
 ## Start the FastAPI backend locally (requires virtualenv)
 dev-api:
-	cd apps/api && if [ -x .venv/bin/python ]; then .venv/bin/python -m uvicorn app.main:app --reload --port 8000; else python3 -m uvicorn app.main:app --reload --port 8000; fi
+	@if [ ! -x "$(API_PY)" ]; then echo "$(API_VENV_MSG)"; exit 1; fi
+	cd apps/api && .venv/bin/python -m uvicorn app.main:app --reload --port 8000
 
 ## Start the Next.js frontend locally
 dev-web:
@@ -21,13 +25,15 @@ dev-web:
 dev-web-local:
 	cd apps/web && NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 
-## Validate MongoDB Atlas connectivity via Prisma
-check-mongo:
-	cd apps/web && export DATABASE_URL="$$(grep '^DATABASE_URL=' .env.local | cut -d= -f2-)" && node -e 'const {PrismaClient}=require("@prisma/client"); const p=new PrismaClient(); p.$$runCommandRaw({ping:1}).then(r=>{console.log("MongoDB OK",r);}).catch(e=>{console.error("MongoDB check failed:", e.message || e); process.exit(1);}).finally(async()=>{await p.$$disconnect();});'
+## Validate Supabase Postgres connectivity
+check-db:
+	@if [ ! -x "$(API_PY)" ]; then echo "$(API_VENV_MSG)"; exit 1; fi
+	cd apps/api && .venv/bin/python -m scripts.check_db
 
 ## Validate API keys (Groq + search provider)
 check-keys:
-	cd apps/api && if [ -x .venv/bin/python ]; then .venv/bin/python scripts/check_integrations.py; else python3 scripts/check_integrations.py; fi
+	@if [ ! -x "$(API_PY)" ]; then echo "$(API_VENV_MSG)"; exit 1; fi
+	cd apps/api && .venv/bin/python scripts/check_integrations.py
 
 # =============================================================================
 # Setup
@@ -35,7 +41,8 @@ check-keys:
 
 ## Download the spaCy model for Knowledge Graph entity extraction
 setup-spacy:
-	cd apps/api && if [ -x .venv/bin/python ]; then .venv/bin/python -m spacy download en_core_web_sm; else python3 -m spacy download en_core_web_sm; fi
+	@if [ ! -x "$(API_PY)" ]; then echo "$(API_VENV_MSG)"; exit 1; fi
+	cd apps/api && .venv/bin/python -m spacy download en_core_web_sm
 
 # =============================================================================
 # Linting
@@ -61,7 +68,8 @@ test: test-api test-web
 
 ## Run backend tests with pytest
 test-api:
-	cd apps/api && python3 -m pytest tests/ -v
+	@if [ ! -x "$(API_PY)" ]; then echo "$(API_VENV_MSG)"; exit 1; fi
+	cd apps/api && .venv/bin/python -m pytest tests/ -v
 
 ## Run frontend tests
 test-web:
@@ -71,13 +79,16 @@ test-web:
 # Database
 # =============================================================================
 
-## Push Prisma schema changes to MongoDB Atlas
+## Apply Alembic migrations to Supabase
 migrate:
-	cd apps/web && export DATABASE_URL="$$(grep '^DATABASE_URL=' .env.local | cut -d= -f2-)" && npm run prisma:push
+	@if [ ! -x "$(API_PY)" ]; then echo "$(API_VENV_MSG)"; exit 1; fi
+	cd apps/api && .venv/bin/alembic upgrade head
 
-## Generate Prisma client
+## Generate a new Alembic revision from the SQLAlchemy models
+## (NOTE: migration files are gitignored — do not commit them)
 migration:
-	cd apps/web && npm run prisma:generate
+	@if [ ! -x "$(API_PY)" ]; then echo "$(API_VENV_MSG)"; exit 1; fi
+	cd apps/api && .venv/bin/alembic revision --autogenerate -m "$(m)"
 
 # =============================================================================
 # Cleanup
@@ -104,7 +115,7 @@ help:
 	@echo "  dev-api       Start the FastAPI backend locally"
 	@echo "  dev-web       Start the Next.js frontend locally"
 	@echo "  dev-web-local Start Next.js frontend against localhost API"
-	@echo "  check-mongo   Validate MongoDB Atlas connectivity via Prisma"
+	@echo "  check-db      Validate Supabase Postgres connectivity"
 	@echo "  check-keys    Validate API keys"
 	@echo "  setup-spacy   Download spaCy model for KG extraction"
 	@echo "  lint          Lint all projects"
@@ -113,8 +124,8 @@ help:
 	@echo "  test          Run all tests"
 	@echo "  test-api      Run backend tests"
 	@echo "  test-web      Run frontend tests"
-	@echo "  migrate       Push Prisma schema to MongoDB Atlas"
-	@echo "  migration     Generate Prisma client"
+	@echo "  migrate       Apply Alembic migrations to Supabase"
+	@echo "  migration     Generate a new Alembic revision (m=msg; gitignored)"
 	@echo "  clean         Remove build artifacts and caches"
 	@echo "  help          Show this help message"
 	@echo ""

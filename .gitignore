@@ -82,6 +82,15 @@ credentials.json
 serviceAccountKey.json
 
 # =============================================================================
+# Database migrations (open source: do NOT publish schema/SQL to GitHub)
+# Contributors generate these locally with `make migration`.
+# =============================================================================
+apps/api/alembic/versions/*.py
+!apps/api/alembic/versions/__init__.py
+*.sql
+*.dump
+
+# =============================================================================
 # Docker
 # =============================================================================
 docker-compose.override.yml

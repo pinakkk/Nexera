@@ -203,6 +203,8 @@ class MongoStore:
             self._runs.create_index([("id", asc)], unique=True)
             self._runs.create_index([("created_at", desc)])
             self._runs.create_index([("user_id", asc), ("created_at", desc)])
+            self._runs.create_index([("session_id", asc), ("created_at", desc)])
+            self._runs.create_index([("thread_id", asc), ("created_at", desc)])
             self._run_events.create_index([("id", asc)], unique=True)
             self._run_events.create_index([("run_id", asc), ("timestamp", asc)])
             self._sources.create_index([("id", asc)], unique=True)
@@ -220,27 +222,53 @@ class MongoStore:
     # Runs
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _scope_filter(
+        user_id: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        if user_id:
+            return {"user_id": user_id}
+        if session_id:
+            return {"session_id": session_id}
+        return {"_id": "__no_actor__"}
+
     async def create_run(self, doc: dict[str, Any]) -> None:
         payload = {**doc}
         await asyncio.to_thread(self._runs.insert_one, payload)
 
-    async def get_run(self, run_id: str) -> dict[str, Any] | None:
+    async def get_run(
+        self,
+        run_id: str,
+        user_id: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        query = {"id": run_id, **self._scope_filter(user_id, session_id)}
         return await asyncio.to_thread(
             self._runs.find_one,
-            {"id": run_id},
+            query,
             {"_id": 0},
         )
 
-    async def run_exists(self, run_id: str) -> bool:
-        row = await asyncio.to_thread(self._runs.find_one, {"id": run_id}, {"_id": 1})
+    async def run_exists(
+        self,
+        run_id: str,
+        user_id: str | None = None,
+        session_id: str | None = None,
+    ) -> bool:
+        query = {"id": run_id, **self._scope_filter(user_id, session_id)}
+        row = await asyncio.to_thread(self._runs.find_one, query, {"_id": 1})
         return row is not None
 
-    async def list_runs(self, limit: int, offset: int, user_id: str | None = None) -> list[dict[str, Any]]:
+    async def list_runs(
+        self,
+        limit: int,
+        offset: int,
+        user_id: str | None = None,
+        session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         def _list() -> list[dict[str, Any]]:
-            match: dict[str, Any] = {}
-            if user_id:
-                match["user_id"] = user_id
-                
+            match = self._scope_filter(user_id, session_id)
             pipeline = [
                 {"$match": match},
                 {"$sort": {"created_at": -1}},
@@ -259,9 +287,15 @@ class MongoStore:
 
         return await asyncio.to_thread(_list)
 
-    async def get_thread_runs(self, thread_id: str) -> list[dict[str, Any]]:
+    async def get_thread_runs(
+        self,
+        thread_id: str,
+        user_id: str | None = None,
+        session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = {"thread_id": thread_id, **self._scope_filter(user_id, session_id)}
         return await asyncio.to_thread(
-            lambda: list(self._runs.find({"thread_id": thread_id}, {"_id": 0}))
+            lambda: list(self._runs.find(query, {"_id": 0}))
         )
 
     async def update_run_final(
@@ -300,8 +334,14 @@ class MongoStore:
             {"$set": {"status": "failed", "finished_at": _utcnow()}},
         )
 
-    async def delete_run(self, run_id: str) -> bool:
-        result = await asyncio.to_thread(self._runs.delete_one, {"id": run_id})
+    async def delete_run(
+        self,
+        run_id: str,
+        user_id: str | None = None,
+        session_id: str | None = None,
+    ) -> bool:
+        query = {"id": run_id, **self._scope_filter(user_id, session_id)}
+        result = await asyncio.to_thread(self._runs.delete_one, query)
         if result.deleted_count == 0:
             return False
 

@@ -17,6 +17,9 @@ class QueryGeneratorService:
         sub_questions: list[str],
         constraints: dict[str, Any],
         llm: LLMService,
+        recent_chat_context: str = "",
+        thread_summary_context: str = "",
+        long_term_memory_context: str = "",
     ) -> list[dict[str, Any]]:
         """Generate search queries for every sub-question.
 
@@ -51,6 +54,21 @@ class QueryGeneratorService:
                 f"\n- Prefer queries that would surface results from: {', '.join(allowed_domains)}"
             )
 
+        context_sections = [
+            section
+            for section in (
+                recent_chat_context.strip(),
+                thread_summary_context.strip(),
+                long_term_memory_context.strip(),
+            )
+            if section
+        ]
+        context_block = ""
+        if context_sections:
+            context_block = "\n\nContext to respect while generating queries:\n" + "\n\n".join(
+                context_sections
+            )
+
         numbered_questions = "\n".join(
             f"  {i + 1}. {q}" for i, q in enumerate(sub_questions)
         )
@@ -64,6 +82,7 @@ Sub-questions:
 {numbered_questions}
 
 Constraints:{timeframe_instruction}{domain_instruction}
+{context_block}
 
 Return ONLY valid JSON in this exact format:
 {{

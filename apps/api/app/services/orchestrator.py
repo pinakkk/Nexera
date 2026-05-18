@@ -61,12 +61,16 @@ class OrchestratorState(TypedDict, total=False):
 
     run_id: str
     user_id: str | None
+    session_id: str | None
+    thread_id: str | None
     query: str
     constraints: dict[str, Any]
     status: str
     current_state: str
-    memory_context: str  # injected from persistent memory
-    chat_context: str  # conversation history from chat_history constraint
+    recent_chat_context: str
+    thread_summary_context: str
+    long_term_memory_context: str
+    recent_chat_history: list[dict[str, str]]
 
     # Planning
     plan: dict[str, Any]  # {sub_questions, outline, focus_areas}
@@ -252,6 +256,8 @@ class Orchestrator:
         constraints: dict[str, Any],
         event_callback: EventCallback,
         user_id: str | None = None,
+        session_id: str | None = None,
+        thread_id: str | None = None,
     ) -> OrchestratorState:
         """Execute the full research pipeline for *run_id*."""
         # Reset per-run caches
@@ -262,11 +268,16 @@ class Orchestrator:
         memory: OrchestratorState = {
             "run_id": str(run_id),
             "user_id": user_id,
+            "session_id": session_id,
+            "thread_id": thread_id,
             "query": query,
             "constraints": constraints,
             "status": "running",
             "current_state": state.value,
-            "memory_context": "",
+            "recent_chat_context": "",
+            "thread_summary_context": "",
+            "long_term_memory_context": "",
+            "recent_chat_history": [],
             "plan": {},
             "queries": [],
             "all_query_strings": [],
@@ -354,7 +365,7 @@ class Orchestrator:
             )
 
             # Persist final state to DB
-            await self._persist_final(memory)
+            await self._persist_final(memory, event_callback)
 
         except Exception as exc:
             logger.exception("Orchestrator fatal error for run %s", run_id)
@@ -369,7 +380,7 @@ class Orchestrator:
                 memory,
             )
             try:
-                await self._persist_final(memory)
+                await self._persist_final(memory, event_callback)
             except Exception:
                 logger.exception("Failed to persist fatal error state")
         finally:
@@ -436,35 +447,44 @@ class Orchestrator:
 
         memory["max_iterations"] = int(constraints["max_iterations"])
 
-        # ── Inject chat history as conversation context ──────────────────
+        # ── Load recent chat, thread summary, and long-term memory separately ──
         chat_history = constraints.pop("chat_history", None)
-        if chat_history and isinstance(chat_history, list):
-            lines = ["## Conversation History (prior messages in this thread)\n"]
-            for msg in chat_history[-10:]:
-                role = msg.get("role", "user").capitalize()
-                content = msg.get("content", "")[:2000]
-                lines.append(f"**{role}**: {content}\n")
-            memory["chat_context"] = "\n".join(lines)
-        else:
-            memory["chat_context"] = ""
+        recent_chat_history = chat_history if isinstance(chat_history, list) else []
+        memory["recent_chat_history"] = recent_chat_history
 
-        # ── Inject persistent memory context ─────────────────────────────
         user_id = memory.get("user_id")
-        if user_id and getattr(self._settings, "MEMORY_ENABLED", False):
+        session_id = memory.get("session_id")
+        thread_id = memory.get("thread_id")
+        if getattr(self._settings, "MEMORY_ENABLED", False):
             try:
                 from .memory import get_memory_service
+
                 mem_svc = get_memory_service()
-                memory_context = await mem_svc.get_memory_context(user_id, query)
-                if memory_context:
-                    memory["memory_context"] = memory_context
-                    logger.info("Injected %d chars of memory context", len(memory_context))
+                context_bundle = await mem_svc.get_context_bundle(
+                    query=query,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    session_id=session_id,
+                    recent_chat_history=recent_chat_history,
+                )
+                memory["recent_chat_context"] = context_bundle["recent_chat_context"]
+                memory["thread_summary_context"] = context_bundle["thread_summary_context"]
+                memory["long_term_memory_context"] = context_bundle["long_term_memory_context"]
+                counts = context_bundle.get("counts", {})
+                if any(int(counts.get(key, 0)) > 0 for key in counts):
+                    await self._emit_event(
+                        event_callback,
+                        "memory_context_loaded",
+                        "Loaded context from recent chat, thread summary, and memory",
+                        {
+                            "recent_turns": counts.get("recent_turns", 0),
+                            "thread_summary": counts.get("thread_summary", 0),
+                            "long_term_memories": counts.get("long_term_memories", 0),
+                        },
+                        memory,
+                    )
             except Exception as exc:
                 logger.warning("Memory context injection failed: %s", exc)
-
-        # Prepend chat context to memory context so the LLM sees conversation history
-        chat_ctx = memory.get("chat_context", "")
-        if chat_ctx:
-            memory["memory_context"] = chat_ctx + "\n\n" + memory.get("memory_context", "")
 
         logger.info(
             "Intake complete – query=%r  depth=%s  max_iter=%d",
@@ -490,7 +510,9 @@ class Orchestrator:
                 mode=mode,
                 constraints=memory["constraints"],
                 llm=self._llm,
-                memory_context=memory.get("memory_context", ""),
+                recent_chat_context=memory.get("recent_chat_context", ""),
+                thread_summary_context=memory.get("thread_summary_context", ""),
+                long_term_memory_context=memory.get("long_term_memory_context", ""),
             )
         except Exception as exc:
             logger.warning("Team leader failed, falling back to planner: %s", exc)
@@ -498,6 +520,9 @@ class Orchestrator:
                 query=memory["query"],
                 depth=depth,
                 llm=self._llm,
+                recent_chat_context=memory.get("recent_chat_context", ""),
+                thread_summary_context=memory.get("thread_summary_context", ""),
+                long_term_memory_context=memory.get("long_term_memory_context", ""),
             )
 
         if not memory.get("model_name") or memory.get("model_name") == self._settings.GROQ_SMART_MODEL:
@@ -614,6 +639,9 @@ class Orchestrator:
             sub_questions=sub_questions,
             constraints=memory["constraints"],
             llm=self._llm,
+            recent_chat_context=memory.get("recent_chat_context", ""),
+            thread_summary_context=memory.get("thread_summary_context", ""),
+            long_term_memory_context=memory.get("long_term_memory_context", ""),
         )
 
         if memory.get("_refine_queries"):
@@ -921,8 +949,9 @@ class Orchestrator:
             evidence=memory["evidence"],
             citation_style=citation_style,
             llm=self._llm,
-            chat_context=memory.get("chat_context", ""),
-            memory_context=memory.get("memory_context", ""),
+            recent_chat_context=memory.get("recent_chat_context", ""),
+            thread_summary_context=memory.get("thread_summary_context", ""),
+            long_term_memory_context=memory.get("long_term_memory_context", ""),
         )
 
         # Append KG summary if available
@@ -1174,6 +1203,91 @@ class Orchestrator:
             memory,
         )
 
+        if getattr(self._settings, "MEMORY_ENABLED", False):
+            try:
+                await self._persist_thread_summary(
+                    memory,
+                    report_summary="",
+                    latest_notes=applied_notes,
+                )
+                await self._emit_event(
+                    event_callback,
+                    "memory_saved",
+                    "Updated thread summary after steering",
+                    {
+                        "thread_summary": 1,
+                        "long_term_memories": 0,
+                    },
+                    memory,
+                )
+            except Exception as exc:
+                logger.warning("Failed to persist steering summary: %s", exc)
+
+    def _build_thread_summary(
+        self,
+        memory: OrchestratorState,
+        *,
+        report_summary: str,
+        latest_notes: list[str] | None = None,
+    ) -> tuple[str, list[str]]:
+        """Build a compact rolling summary for the active thread."""
+        constraints = memory.get("constraints", {})
+        steering_notes = [note for note in memory.get("steering_notes", []) if note]
+        follow_ups = list(latest_notes or steering_notes[-3:])
+
+        lines = [f"User goal: {memory.get('query', '').strip()}"]
+
+        timeframe = constraints.get("timeframe")
+        if timeframe:
+            lines.append(f"Timeframe: {timeframe}")
+
+        allowed_domains = constraints.get("allowed_domains") or []
+        if allowed_domains:
+            lines.append(f"Preferred domains: {', '.join(allowed_domains[:8])}")
+
+        custom_instructions = str(constraints.get("custom_instructions") or "").strip()
+        if custom_instructions:
+            lines.append(f"Custom instructions: {custom_instructions[:280]}")
+
+        if steering_notes:
+            lines.append(f"Steering notes: {'; '.join(steering_notes[-3:])}")
+
+        if report_summary:
+            lines.append(f"Latest findings: {report_summary[:700]}")
+
+        return "\n".join(lines), follow_ups[:5]
+
+    async def _persist_thread_summary(
+        self,
+        memory: OrchestratorState,
+        *,
+        report_summary: str,
+        latest_notes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Persist the rolling summary for this thread or anonymous browser session."""
+        from .memory import get_memory_service
+
+        thread_id = memory.get("thread_id")
+        if not thread_id:
+            return {}
+
+        summary_text, follow_ups = self._build_thread_summary(
+            memory,
+            report_summary=report_summary,
+            latest_notes=latest_notes,
+        )
+        mem_svc = get_memory_service()
+        return await mem_svc.upsert_thread_summary(
+            thread_id=thread_id,
+            query=memory.get("query", ""),
+            summary=summary_text,
+            user_id=memory.get("user_id"),
+            session_id=memory.get("session_id"),
+            source_run_id=memory.get("run_id"),
+            open_follow_ups=follow_ups,
+            recent_queries=memory.get("all_query_strings", [])[-8:],
+        )
+
     # ------------------------------------------------------------------ #
     # Event emission
     # ------------------------------------------------------------------ #
@@ -1264,27 +1378,42 @@ class Orchestrator:
     # Final persistence
     # ------------------------------------------------------------------ #
 
-    async def _persist_final(self, memory: OrchestratorState) -> None:
+    async def _persist_final(
+        self,
+        memory: OrchestratorState,
+        event_callback: EventCallback,
+    ) -> None:
         """Update the Run record with final report and scores."""
         scores = memory.get("verification_result", {}).get("scores", memory.get("eval_result", {}).get("scores", {}))
         citations = self._normalize_citations(memory.get("citations", []))
 
         # ── Store run summary in persistent memory ───────────────────────
         user_id = memory.get("user_id")
-        if user_id and memory.get("status") == "completed" and getattr(self._settings, "MEMORY_ENABLED", False):
+        saved_thread_summary = 0
+        saved_long_term = 0
+        if memory.get("status") == "completed" and getattr(self._settings, "MEMORY_ENABLED", False):
             try:
                 from .memory import get_memory_service
+
                 mem_svc = get_memory_service()
                 report_md = memory.get("report_md", "")
                 summary = report_md[:500] if report_md else ""
-                await mem_svc.store_run_summary(
+                thread_doc = await self._persist_thread_summary(
+                    memory,
+                    report_summary=summary,
+                )
+                saved_thread_summary = 1 if thread_doc else 0
+                created = await mem_svc.store_run_memory_bundle(
                     user_id=user_id,
                     run_id=memory["run_id"],
                     query=memory["query"],
+                    constraints=memory.get("constraints", {}),
                     report_summary=summary,
+                    steering_notes=memory.get("steering_notes", []),
                 )
+                saved_long_term = len(created)
             except Exception as exc:
-                logger.warning("Failed to store run summary in memory: %s", exc)
+                logger.warning("Failed to store memory bundle: %s", exc)
 
         if self._run_store is not None:
             await self._run_store.update_run_final(
@@ -1298,6 +1427,17 @@ class Orchestrator:
                 iteration_count=memory.get("iteration", 0),
             )
             logger.info("Persisted final state for run %s (Mongo)", memory["run_id"])
+            if saved_thread_summary or saved_long_term:
+                await self._emit_event(
+                    event_callback,
+                    "memory_saved",
+                    "Saved thread summary and reusable memory",
+                    {
+                        "thread_summary": saved_thread_summary,
+                        "long_term_memories": saved_long_term,
+                    },
+                    memory,
+                )
             return
 
         if self._db is None:
@@ -1329,6 +1469,17 @@ class Orchestrator:
             )
             await self._db.commit()
             logger.info("Persisted final state for run %s", memory["run_id"])
+            if saved_thread_summary or saved_long_term:
+                await self._emit_event(
+                    event_callback,
+                    "memory_saved",
+                    "Saved thread summary and reusable memory",
+                    {
+                        "thread_summary": saved_thread_summary,
+                        "long_term_memories": saved_long_term,
+                    },
+                    memory,
+                )
         except Exception:
             logger.exception("Failed to persist final run state")
 

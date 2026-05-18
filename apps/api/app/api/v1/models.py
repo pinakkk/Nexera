@@ -54,6 +54,7 @@ async def list_models() -> ModelListResponse:
         )
 
     try:
+        print(f"DEBUG GROQ KEY in /v1/models: '{settings.GROQ_API_KEY}'")
         client = groq.AsyncGroq(api_key=settings.GROQ_API_KEY)
         response = await client.models.list()
         ids_seen: set[str] = set()

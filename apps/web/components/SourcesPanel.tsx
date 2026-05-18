@@ -78,8 +78,8 @@ export function SourcesPanel({ sources, citations }: SourcesPanelProps) {
   if (sources.length === 0) return null;
 
   return (
-    <div className="border-t border-black/10 dark:border-white/[0.06] pt-6">
-      <h3 className="text-sm font-semibold text-neutral-900 dark:text-white mb-4">
+    <div>
+      <h3 className="mb-4 text-sm font-semibold text-neutral-900 dark:text-white">
         {TEXT_CONFIG.sourcesPanel.sourcesTitle} ({sources.length})
       </h3>
       <div className="grid gap-2 sm:gap-3">

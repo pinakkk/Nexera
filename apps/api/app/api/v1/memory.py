@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from app.auth import get_user_id_from_request
+from app.auth import get_request_actor
 from app.services.memory import get_memory_service
 
 logger = logging.getLogger(__name__)
@@ -26,10 +26,11 @@ async def list_memories(
     limit: int = 50,
 ):
     """List memories for the authenticated user."""
-    user_id = get_user_id_from_request(request)
+    actor = get_request_actor(request)
+    user_id = actor["user_id"]
     try:
         service = get_memory_service()
-        if not service.enabled:
+        if not service.enabled or not user_id:
             return {"memories": []}
         memories = await service.list_memories(user_id, category=category, limit=limit)
         return {"memories": memories}
@@ -41,7 +42,10 @@ async def list_memories(
 @router.delete("/{memory_id}")
 async def delete_memory(request: Request, memory_id: str):
     """Delete a specific memory."""
-    user_id = get_user_id_from_request(request)
+    actor = get_request_actor(request)
+    user_id = actor["user_id"]
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign in to manage long-term memory.")
     service = get_memory_service()
     deleted = await service.delete_memory(user_id, memory_id)
     if not deleted:
@@ -52,10 +56,11 @@ async def delete_memory(request: Request, memory_id: str):
 @router.get("/stats")
 async def get_memory_stats(request: Request):
     """Get memory statistics for the authenticated user."""
-    user_id = get_user_id_from_request(request)
+    actor = get_request_actor(request)
+    user_id = actor["user_id"]
     try:
         service = get_memory_service()
-        if not service.enabled:
+        if not service.enabled or not user_id:
             return {"total": 0, "by_category": {}}
         stats = await service.get_stats(user_id)
         return stats
@@ -67,7 +72,10 @@ async def get_memory_stats(request: Request):
 @router.post("/trusted-sources")
 async def add_trusted_source(request: Request, body: TrustedSourceCreate):
     """Add a trusted source domain."""
-    user_id = get_user_id_from_request(request)
+    actor = get_request_actor(request)
+    user_id = actor["user_id"]
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign in to save trusted sources.")
     service = get_memory_service()
     source = await service.add_trusted_source(
         user_id,
@@ -81,10 +89,11 @@ async def add_trusted_source(request: Request, body: TrustedSourceCreate):
 @router.get("/trusted-sources")
 async def list_trusted_sources(request: Request):
     """List all trusted sources for the authenticated user."""
-    user_id = get_user_id_from_request(request)
+    actor = get_request_actor(request)
+    user_id = actor["user_id"]
     try:
         service = get_memory_service()
-        if not service.enabled:
+        if not service.enabled or not user_id:
             return {"sources": []}
         sources = await service.list_trusted_sources(user_id)
         return {"sources": sources}
@@ -96,7 +105,10 @@ async def list_trusted_sources(request: Request):
 @router.delete("/trusted-sources/{source_id}")
 async def remove_trusted_source(request: Request, source_id: str):
     """Remove a trusted source."""
-    user_id = get_user_id_from_request(request)
+    actor = get_request_actor(request)
+    user_id = actor["user_id"]
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Sign in to manage trusted sources.")
     service = get_memory_service()
     removed = await service.remove_trusted_source(user_id, source_id)
     if not removed:

@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     SEMANTIC_SCHOLAR_ENDPOINT: str = "https://api.semanticscholar.org/graph/v1"
     ARXIV_ENDPOINT: str = "https://export.arxiv.org/api"
 
-    # ── Database ─────────────────────────────────────────────────────────────
+    # ── Database (Supabase — managed Postgres + pgvector) ────────────────────
+    # Async SQLAlchemy connection string, e.g.
+    # postgresql+asyncpg://postgres:PASSWORD@db.<project>.supabase.co:5432/postgres
     DATABASE_URL: str = ""
     DB_STARTUP_RETRIES: int = 5
     DB_STARTUP_RETRY_DELAY_SECONDS: float = 2.0
@@ -107,9 +109,6 @@ class Settings(BaseSettings):
     MEMORY_ENABLED: bool = True
     MEMORY_MAX_ENTRIES: int = 100
     MEMORY_TOP_K: int = 5
-
-    # ── Postgres URL (separate from MongoDB DATABASE_URL) ────────────────
-    POSTGRES_URL: str = ""
 
     # ── Authentication (WorkOS — managed on Next.js layer) ───────────────────
     # No backend WorkOS keys needed; JWTs are forwarded from the frontend.

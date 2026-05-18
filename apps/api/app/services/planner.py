@@ -24,6 +24,9 @@ class PlannerService:
         query: str,
         depth: str,
         llm: LLMService,
+        recent_chat_context: str = "",
+        thread_summary_context: str = "",
+        long_term_memory_context: str = "",
     ) -> dict[str, Any]:
         """Decompose *query* into sub-questions, an outline, and focus areas.
 
@@ -45,13 +48,26 @@ class PlannerService:
         """
         min_q, max_q = _DEPTH_MAP.get(depth, _DEPTH_MAP["standard"])
 
+        context_sections = [
+            section
+            for section in (
+                recent_chat_context.strip(),
+                thread_summary_context.strip(),
+                long_term_memory_context.strip(),
+            )
+            if section
+        ]
+        context_block = ""
+        if context_sections:
+            context_block = "Additional context:\n" + "\n\n".join(context_sections) + "\n\n"
+
         prompt = f"""You are a research planning assistant.
 
 Given the following research question, decompose it into {min_q} to {max_q} specific
 sub-questions that together will comprehensively answer the original question.
 Also produce a report outline (sections) and key focus areas.
 
-Research question: "{query}"
+{context_block}Research question: "{query}"
 Depth level: {depth}
 
 Return ONLY valid JSON in this exact format:

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import type { RunConstraints } from '@/lib/types';
 import clsx from 'clsx';
+import { getActorHeaders } from '@/lib/api';
 import { TEXT_CONFIG } from '@/lib/text-config';
 
 /* ------------------------------------------------------------------ */
@@ -72,6 +73,7 @@ export function ResearchInput({
   const [query, setQuery] = useState('');
   const [depth, setDepth] = useState<'quick' | 'standard' | 'deep'>('standard');
   const [selectedModel, setSelectedModel] = useState(MODEL_PRESETS[0].id);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [openMenu, setOpenMenu] = useState<'depth' | 'model' | 'attach' | null>(null);
 
   const [files, setFiles] = useState<File[]>([]);
@@ -188,8 +190,10 @@ export function ResearchInput({
       formData.append('file', audioBlob, 'recording.webm');
 
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const actorHeaders = await getActorHeaders();
       const res = await fetch(`${baseUrl}/v1/transcribe`, {
         method: 'POST',
+        headers: actorHeaders,
         body: formData,
       });
 
@@ -504,12 +508,12 @@ export function ResearchInput({
 
             <div className="w-px h-5 bg-black/[0.06] dark:bg-white/[0.06] shrink-0 hidden sm:block" />
 
-            {/* Model selector */}
+            {/* Advanced / Model selector */}
             <div className="relative">
               <button
+                type="button"
                 onClick={() => setOpenMenu((value) => (value === 'model' ? null : 'model'))}
                 className="inline-flex items-center gap-1 rounded-lg border border-black/[0.08] dark:border-white/[0.09] bg-white/60 dark:bg-white/[0.04] px-2 py-1.5 text-[11px] font-semibold text-neutral-700 transition-colors hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white sm:gap-1.5 sm:px-2.5"
-                title={TEXT_CONFIG.researchInput.modelTitle}
               >
                 <Cpu size={13} className="text-orange-500 shrink-0" />
                 <span className="hidden sm:inline whitespace-nowrap">{selectedModelPreset.label}</span>
@@ -523,11 +527,15 @@ export function ResearchInput({
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 6 }}
                     transition={{ duration: 0.12 }}
-                    className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[170px] overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-lg shadow-black/10 dark:border-white/[0.08] dark:bg-neutral-900 dark:shadow-black/40"
+                    className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[150px] overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-lg shadow-black/10 dark:border-white/[0.08] dark:bg-neutral-900 dark:shadow-black/40"
                   >
+                    <div className="px-3 py-1.5 border-b border-black/[0.05] dark:border-white/[0.05] bg-black/[0.02] dark:bg-white/[0.02]">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-neutral-500">Advanced Models</span>
+                    </div>
                     {MODEL_PRESETS.map((model) => (
                       <button
                         key={model.id}
+                        type="button"
                         onClick={() => {
                           setSelectedModel(model.id);
                           setOpenMenu(null);
@@ -575,6 +583,8 @@ export function ResearchInput({
             </span>
           </button>
         </div>
+
+
       </div>
 
       {/* Keyboard hint */}

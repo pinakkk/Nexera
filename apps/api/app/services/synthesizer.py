@@ -19,8 +19,9 @@ class SynthesizerService:
         evidence: list[dict[str, Any]],
         citation_style: str,
         llm: LLMService,
-        chat_context: str = "",
-        memory_context: str = "",
+        recent_chat_context: str = "",
+        thread_summary_context: str = "",
+        long_term_memory_context: str = "",
     ) -> dict[str, Any]:
         """Generate a research report with inline citations.
 
@@ -85,12 +86,14 @@ class SynthesizerService:
 
         # Build context block from chat history and memory
         context_block = ""
-        if chat_context or memory_context:
+        if recent_chat_context or thread_summary_context or long_term_memory_context:
             context_parts = []
-            if chat_context:
-                context_parts.append(chat_context)
-            if memory_context:
-                context_parts.append(memory_context)
+            if recent_chat_context:
+                context_parts.append(recent_chat_context)
+            if thread_summary_context:
+                context_parts.append(thread_summary_context)
+            if long_term_memory_context:
+                context_parts.append(long_term_memory_context)
             context_block = "\n".join(context_parts) + "\n\n"
 
         prompt = f"""You are an expert research report writer.

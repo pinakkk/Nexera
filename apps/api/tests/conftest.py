@@ -93,7 +93,11 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
     app.dependency_overrides[get_db_session] = _override_get_db
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+        headers={"X-Anonymous-Session-ID": "anon-test-session"},
+    ) as client:
         yield client
 
     app.dependency_overrides.clear()

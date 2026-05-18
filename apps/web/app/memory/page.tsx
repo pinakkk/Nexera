@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAuth } from '@workos-inc/authkit-nextjs/components';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain,
@@ -83,6 +84,8 @@ function confidenceBar(confidence: number) {
 /* ------------------------------------------------------------------ */
 
 export default function MemoryPage() {
+  const { user } = useAuth();
+  const isSignedIn = !!user;
   const [memories, setMemories] = useState<MemoryEntry[]>([]);
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -139,6 +142,12 @@ export default function MemoryPage() {
           <p className="mt-1 text-sm text-neutral-500 dark:text-zinc-400">
             Persistent memory entries the agent uses to improve future research.
           </p>
+          {!isSignedIn && (
+            <p className="mt-2 text-xs text-neutral-500 dark:text-zinc-500">
+              Durable long-term memory is available after sign-in. Anonymous sessions keep
+              thread context and history only in this browser.
+            </p>
+          )}
         </div>
 
         {/* Stats */}

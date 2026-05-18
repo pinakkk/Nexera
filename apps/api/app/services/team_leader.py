@@ -39,7 +39,9 @@ class TeamLeaderService:
         mode: str,
         constraints: dict[str, Any],
         llm: Any,
-        memory_context: str = "",
+        recent_chat_context: str = "",
+        thread_summary_context: str = "",
+        long_term_memory_context: str = "",
     ) -> dict[str, Any]:
         """Create a structured research plan with delegation instructions.
 
@@ -49,13 +51,17 @@ class TeamLeaderService:
         min_q, max_q = _DEPTH_MAP.get(depth, _DEPTH_MAP["standard"])
         system_prompt = _load_prompt()
 
-        memory_block = ""
-        if memory_context:
-            memory_block = f"""
---- Agent Memory (prior research context) ---
-{memory_context}
---- End Memory ---
-"""
+        context_sections = [
+            ("Recent conversation", recent_chat_context),
+            ("Thread summary", thread_summary_context),
+            ("Long-term memory", long_term_memory_context),
+        ]
+        context_parts = [
+            f"--- {label} ---\n{value.strip()}\n--- End {label} ---"
+            for label, value in context_sections
+            if value and value.strip()
+        ]
+        memory_block = "\n".join(context_parts)
 
         prompt = f"""{system_prompt}
 {memory_block}

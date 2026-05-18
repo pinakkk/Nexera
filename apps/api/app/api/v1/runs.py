@@ -14,7 +14,7 @@ from slowapi.util import get_remote_address
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.v1.health import decrement_counter, increment_counter
-from app.auth import get_user_id_from_request
+from app.auth import get_request_actor, require_request_actor
 from app.db.mongo import (
     MongoStore,
     MongoUnavailableError,
@@ -31,6 +31,13 @@ router = APIRouter(prefix="/runs")
 
 # Rate limiter for run endpoints
 _limiter = Limiter(key_func=get_remote_address)
+
+
+def _actor_kwargs(actor: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "user_id": actor.get("user_id"),
+        "session_id": actor.get("session_id"),
+    }
 
 
 def _is_pdf_eligible(report_md: str, citations: list[Any], gate_route: str | None) -> bool:
@@ -195,6 +202,7 @@ class RunCreateResponse(BaseModel):
 
     run_id: str
     status: str
+    thread_id: str
     gate_result: dict[str, Any] | None = None
     pdf_url: str | None = None
 
@@ -244,6 +252,8 @@ async def _run_orchestrator(
     mode: str,
     settings_overrides: dict[str, str] | None = None,
     user_id: str | None = None,
+    session_id: str | None = None,
+    thread_id: str | None = None,
 ) -> None:
     """Launch the orchestrator in the background.
 
@@ -383,6 +393,8 @@ async def _run_orchestrator(
             constraints=merged_constraints,
             event_callback=_broadcast_only_cb,
             user_id=user_id,
+            session_id=session_id,
+            thread_id=thread_id or run_id,
         )
 
         # ── Step 5: Generate PDF only for substantial FULL_RESEARCH results ──────────
@@ -466,8 +478,8 @@ async def create_run(request: Request, body: RunCreateRequest = Body(...)) -> Ru
     store = _get_store_or_503()
     run_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
-
-    user_id = get_user_id_from_request(request)
+    actor = require_request_actor(request)
+    thread_id = body.thread_id or run_id
 
     constraints_json = body.constraints.model_dump() if body.constraints else None
     await _db_or_503(
@@ -475,7 +487,8 @@ async def create_run(request: Request, body: RunCreateRequest = Body(...)) -> Ru
         store.create_run(
             {
                 "id": run_id,
-                "user_id": user_id,
+                "user_id": actor["user_id"],
+                "session_id": actor["session_id"],
                 "query": body.query,
                 "constraints_json": constraints_json,
                 "status": "pending",
@@ -489,7 +502,7 @@ async def create_run(request: Request, body: RunCreateRequest = Body(...)) -> Ru
                 "report_json": None,
                 "scores_json": None,
                 "citations": [],
-                "thread_id": body.thread_id or run_id,
+                "thread_id": thread_id,
             }
         ),
     )
@@ -514,20 +527,23 @@ async def create_run(request: Request, body: RunCreateRequest = Body(...)) -> Ru
             constraints=constraints_json,
             mode=body.mode,
             settings_overrides=user_overrides or None,
-            user_id=user_id,
+            user_id=actor["user_id"],
+            session_id=actor["session_id"],
+            thread_id=thread_id,
         )
     )
 
-    return RunCreateResponse(run_id=run_id, status="pending")
+    return RunCreateResponse(run_id=run_id, status="pending", thread_id=thread_id)
 
 
 @router.get("/{run_id}", response_model=RunResult)
-async def get_run(run_id: str) -> RunResult:
+async def get_run(request: Request, run_id: str) -> RunResult:
     """Return full run details including the report if completed."""
     run_id = _canonical_uuid(run_id)
     store = _get_store_or_503()
 
-    row = await _db_or_503("read run details", store.get_run(run_id))
+    actor = require_request_actor(request)
+    row = await _db_or_503("read run details", store.get_run(run_id, **_actor_kwargs(actor)))
     if row is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -535,12 +551,16 @@ async def get_run(run_id: str) -> RunResult:
 
 
 @router.get("/thread/{thread_id}", response_model=list[RunResult])
-async def get_thread_runs(thread_id: str) -> list[RunResult]:
+async def get_thread_runs(request: Request, thread_id: str) -> list[RunResult]:
     """Return all runs belonging to a specific thread."""
     thread_id = _canonical_uuid(thread_id)
     store = _get_store_or_503()
 
-    rows = await _db_or_503("read thread runs", store.get_thread_runs(thread_id))
+    actor = require_request_actor(request)
+    rows = await _db_or_503(
+        "read thread runs",
+        store.get_thread_runs(thread_id, **_actor_kwargs(actor)),
+    )
     
     # Sort them by created_at ascending (oldest to newest)
     rows.sort(key=lambda x: x.get("created_at") or datetime.min)
@@ -549,12 +569,13 @@ async def get_thread_runs(thread_id: str) -> list[RunResult]:
 
 
 @router.delete("/{run_id}")
-async def delete_run(run_id: str) -> dict[str, Any]:
+async def delete_run(request: Request, run_id: str) -> dict[str, Any]:
     """Delete a research run and all associated data."""
     run_id = _canonical_uuid(run_id)
     store = _get_store_or_503()
 
-    deleted = await _db_or_503("delete a run", store.delete_run(run_id))
+    actor = require_request_actor(request)
+    deleted = await _db_or_503("delete a run", store.delete_run(run_id, **_actor_kwargs(actor)))
     if not deleted:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -562,14 +583,15 @@ async def delete_run(run_id: str) -> dict[str, Any]:
 
 
 @router.post("/{run_id}/user-input", response_model=UserInputResponse)
-async def submit_user_input(run_id: str, body: UserInputRequest) -> UserInputResponse:
+async def submit_user_input(request: Request, run_id: str, body: UserInputRequest) -> UserInputResponse:
     """Submit user input for a run that is waiting in WAIT_FOR_USER state."""
     from app.services.orchestrator import submit_user_input as do_submit
 
     run_id = _canonical_uuid(run_id)
     store = _get_store_or_503()
 
-    if not await _db_or_503("check run existence", store.run_exists(run_id)):
+    actor = require_request_actor(request)
+    if not await _db_or_503("check run existence", store.run_exists(run_id, **_actor_kwargs(actor))):
         raise HTTPException(status_code=404, detail="Run not found")
 
     user_data = body.model_dump(exclude_none=True)
@@ -585,6 +607,7 @@ async def submit_user_input(run_id: str, body: UserInputRequest) -> UserInputRes
 
 @router.post("/{run_id}/steering", response_model=SteeringInputResponse)
 async def submit_steering_input(
+    request: Request,
     run_id: str,
     body: SteeringInputRequest,
 ) -> SteeringInputResponse:
@@ -594,7 +617,8 @@ async def submit_steering_input(
     run_id = _canonical_uuid(run_id)
     store = _get_store_or_503()
 
-    run_row = await _db_or_503("read run status", store.get_run(run_id))
+    actor = require_request_actor(request)
+    run_row = await _db_or_503("read run status", store.get_run(run_id, **_actor_kwargs(actor)))
     if run_row is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -649,6 +673,7 @@ async def submit_steering_input(
 
 @router.get("/{run_id}/events", response_model=list[RunEventResponse])
 async def get_run_events(
+    request: Request,
     run_id: str,
     state: str | None = Query(default=None, description="Filter events by state"),
 ) -> list[RunEventResponse]:
@@ -656,7 +681,8 @@ async def get_run_events(
     run_id = _canonical_uuid(run_id)
     store = _get_store_or_503()
 
-    if not await _db_or_503("check run existence", store.run_exists(run_id)):
+    actor = require_request_actor(request)
+    if not await _db_or_503("check run existence", store.run_exists(run_id, **_actor_kwargs(actor))):
         raise HTTPException(status_code=404, detail="Run not found")
 
     rows = await _db_or_503("fetch run events", store.get_events(run_id=run_id, state=state))
@@ -674,12 +700,13 @@ async def get_run_events(
 
 
 @router.get("/{run_id}/stream")
-async def stream_run_events(run_id: str) -> EventSourceResponse:
+async def stream_run_events(request: Request, run_id: str) -> EventSourceResponse:
     """SSE endpoint that streams run events in real time."""
     run_id = _canonical_uuid(run_id)
     store = _get_store_or_503()
 
-    row = await _db_or_503("read run state", store.get_run(run_id))
+    actor = require_request_actor(request)
+    row = await _db_or_503("read run state", store.get_run(run_id, **_actor_kwargs(actor)))
     if row is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -736,18 +763,18 @@ async def list_runs(
     limit: int = Query(default=20, ge=1, le=100, description="Max runs to return"),
     offset: int = Query(default=0, ge=0, description="Runs to skip"),
 ) -> list[RunStatus]:
-    """List recent runs with pagination, scoped to the authenticated user."""
+    """List recent runs with pagination, scoped to the current actor."""
     store = _get_store_or_503()
-    user_id = get_user_id_from_request(request)
+    actor = require_request_actor(request)
     rows = await _db_or_503(
         "list runs",
-        store.list_runs(limit=limit, offset=offset, user_id=user_id),
+        store.list_runs(limit=limit, offset=offset, **_actor_kwargs(actor)),
     )
     return [_run_status_from_doc(row) for row in rows]
 
 
 @router.get("/{run_id}/pdf")
-async def get_run_pdf(run_id: str):
+async def get_run_pdf(request: Request, run_id: str):
     """Download the PDF report for a completed run."""
     from fastapi.responses import FileResponse
     from app.services.pdf_generator import get_pdf_path, generate_pdf_from_markdown
@@ -755,7 +782,8 @@ async def get_run_pdf(run_id: str):
     run_id = _canonical_uuid(run_id)
     store = _get_store_or_503()
 
-    row = await _db_or_503("read run for PDF", store.get_run(run_id))
+    actor = require_request_actor(request)
+    row = await _db_or_503("read run for PDF", store.get_run(run_id, **_actor_kwargs(actor)))
     if row is None:
         raise HTTPException(status_code=404, detail="Run not found")
 

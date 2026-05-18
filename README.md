@@ -6,16 +6,16 @@ An AI-powered research agent that autonomously searches the web, synthesizes inf
 
 The project is organized as a monorepo with three packages. The **FastAPI backend** (`apps/api`) exposes a REST API that orchestrates the research pipeline: it accepts a research query, fans out web searches via the Tavily API, fetches and parses page content, optionally reranks results with Cohere, and runs multi-step LLM reasoning through Groq-hosted Llama models.
 
-The **Next.js frontend** (`apps/web`) provides a clean interface for submitting research queries, monitoring agent progress in real time, and browsing completed reports. Prisma is configured in `apps/web/prisma` for MongoDB Atlas integration and health checks.
+The **Next.js frontend** (`apps/web`) provides a clean interface for submitting research queries, monitoring agent progress in real time, and browsing completed reports. The web app talks only to the FastAPI API — it has no direct database access.
 
-Local development runs API + web directly, while database storage is externalized to MongoDB Atlas.
+Local development runs API + web directly, while database storage is externalized to **Supabase** (managed Postgres + pgvector). See [V2 architecture.md](V2%20architecture.md) for the full design.
 
 ## Quick Start
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/Autonomous-Research-Agent.git
-cd Autonomous-Research-Agent
+git clone https://github.com/pinakkk/Nexara.git
+cd Nexara
 
 # 2. Copy the example environment file and fill in your API keys
 cp .env.example .env
@@ -25,6 +25,10 @@ make dev
 ```
 
 The frontend will be available at `http://localhost:3000` and the API at `http://localhost:8000`.
+
+The API targets Python 3.11 and the repo now expects the virtualenv at `apps/api/.venv`.
+Commands such as `make dev-api`, `make test-api`, and `npm run api` intentionally fail fast
+if that interpreter is missing so the project does not silently run on Python 3.14.
 
 ## Local Dev Without Docker (Recommended)
 
@@ -37,8 +41,8 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-make check-mongo
-python -m uvicorn app.main:app --reload --port 8000
+make check-db
+.venv/bin/python -m uvicorn app.main:app --reload --port 8000
 
 # 2) In another terminal, Web
 cd /path/to/Autonomous-Research-Agent
@@ -48,7 +52,8 @@ cd ../..
 make dev-web-local
 ```
 
-This avoids local DB dependencies while you iterate on Vercel deployment.
+This avoids local DB dependencies while you iterate on Vercel deployment. The
+database is hosted on Supabase; no local Postgres is required.
 Use Python 3.11 for the API environment to avoid native-wheel build issues on Python 3.14.
 
 ## Environment Variables
@@ -60,8 +65,8 @@ Use Python 3.11 for the API environment to avoid native-wheel build issues on Py
 | `GROQ_SMART_MODEL` | Capable model for reasoning tasks | No | `llama-3.3-70b-versatile` |
 | `TAVILY_API_KEY` | Tavily API key for web search | Yes | -- |
 | `SEARCH_MAX_RESULTS` | Max search results per query | No | `5` |
-| `DATABASE_URL` | MongoDB Atlas connection string (Prisma datasource) | Yes | -- |
-| `ALLOW_START_WITHOUT_DB` | Skip startup MongoDB readiness check (not recommended) | No | `false` |
+| `DATABASE_URL` | Supabase Postgres connection string (async SQLAlchemy) | Yes | -- |
+| `ALLOW_START_WITHOUT_DB` | Skip startup Supabase readiness check (not recommended) | No | `false` |
 | `REDIS_URL` | Redis connection string | No | -- |
 | `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | No | `http://localhost:3000,http://localhost:3001` |
 | `RATE_LIMIT_PER_MINUTE` | General API rate limit | No | `30` |
@@ -78,35 +83,36 @@ make dev          # Start API + Web concurrently (local)
 make dev-api      # Start the FastAPI backend locally
 make dev-web      # Start the Next.js frontend locally
 make dev-web-local # Start frontend pointed at http://localhost:8000
-make check-mongo  # Validate MongoDB Atlas connectivity via Prisma
+make check-db     # Validate Supabase Postgres connectivity
 make lint         # Lint both backend and frontend
 make test         # Run all tests
-make migrate      # Push Prisma schema to MongoDB Atlas
-make migration    # Generate Prisma client
+make migrate      # Apply Alembic migrations to Supabase
+make migration    # Generate a new Alembic revision from the models
 make clean        # Remove build artifacts and caches
 make help         # Show all available targets
 ```
 
-## MongoDB Atlas Connectivity Troubleshooting
+> **Open source note:** this repo is public. Alembic migration files under
+> `apps/api/alembic/versions/` are **gitignored** and must not be committed —
+> contributors generate them locally from the SQLAlchemy models with
+> `make migration`. Only `.env.example` (placeholders) is tracked.
 
-If DB health checks fail due DNS/network:
+## Supabase Connectivity Troubleshooting
+
+If DB health checks fail:
 
 ```bash
-# 1) Validate DNS + DB connectivity from current env
-make check-mongo
+# 1) Validate Supabase connectivity from current env
+make check-db
 
-# 2) If DNS resolution fails on macOS, set public resolvers
-networksetup -setdnsservers Wi-Fi 1.1.1.1 8.8.8.8
+# 2) Confirm DATABASE_URL points at your Supabase project
+#    (Project Settings → Database → Connection string → URI)
 
-# 3) Flush local DNS cache
-sudo dscacheutil -flushcache
-sudo killall -HUP mDNSResponder
-
-# 4) Re-test Atlas SRV host
-nslookup <your-atlas-cluster-host>
+# 3) Check that your IP / network is allowed in Supabase
+#    (Project Settings → Database → Network restrictions)
 ```
 
-If host resolution still fails, regenerate your MongoDB Atlas connection string and update `apps/api/.env` and `apps/web/.env.local`.
+If connection still fails, regenerate the Supabase connection string and update `apps/api/.env`.
 
 ## API Endpoints
 
@@ -127,8 +133,8 @@ If host resolution still fails, regenerate your MongoDB Atlas connection string 
 - **LLM:** Groq API (Llama 3.1 / 3.3)
 - **Search:** Tavily Search API
 - **Reranking:** Cohere Rerank (optional)
-- **Database:** MongoDB Atlas (Prisma)
+- **Database:** Supabase (managed Postgres + pgvector), Alembic migrations
 - **Cache/Rate Limiting:** Redis 7
-- **Infrastructure:** Local process workflow, MongoDB Atlas
+- **Infrastructure:** Local process workflow, Supabase
 - **Linting:** Ruff (Python), ESLint (TypeScript)
 - **Testing:** pytest (Python), Jest (TypeScript)

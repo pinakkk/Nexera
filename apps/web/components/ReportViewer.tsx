@@ -4,10 +4,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Citation, Source, EvaluationScores } from '@/lib/types';
 import { SourcesPanel } from './SourcesPanel';
-import { Download, FileText, Loader2, Volume2, Square } from 'lucide-react';
+import { ChevronDown, Download, Loader2, Volume2, Square } from 'lucide-react';
 import { useState, useRef, useCallback } from 'react';
 import { TEXT_CONFIG } from '@/lib/text-config';
-import { textToSpeech } from '@/lib/api';
+import { getActorHeaders, textToSpeech } from '@/lib/api';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -54,6 +54,8 @@ export function ReportViewer({
   const [isDownloading, setIsDownloading] = useState(false);
   const [isTTSLoading, setIsTTSLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showQuality, setShowQuality] = useState(false);
+  const [showSources, setShowSources] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
 
@@ -149,7 +151,10 @@ export function ReportViewer({
     setIsDownloading(true);
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${baseUrl}/v1/runs/${runId}/pdf`);
+      const actorHeaders = await getActorHeaders();
+      const res = await fetch(`${baseUrl}/v1/runs/${runId}/pdf`, {
+        headers: actorHeaders,
+      });
       if (!res.ok) throw new Error(`PDF download failed: ${res.statusText}`);
 
       const blob = await res.blob();
@@ -179,63 +184,75 @@ export function ReportViewer({
   })();
 
   return (
-    <div className="space-y-5">
-      {/* Confidence badge */}
-      {confidenceBadge && (
-        <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${confidenceBadge.className}`}>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {confidenceBadge && (
+          <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold ${confidenceBadge.className}`}>
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
             {confidenceBadge.label}
           </span>
-        </div>
-      )}
+        )}
+        {sources.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowSources((value) => !value)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1 text-[11px] font-medium text-neutral-600 transition-colors hover:bg-black/[0.05] dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-neutral-300 dark:hover:bg-white/[0.06]"
+          >
+            {sources.length} source{sources.length === 1 ? '' : 's'}
+            <ChevronDown size={12} className={`transition-transform ${showSources ? 'rotate-180' : ''}`} />
+          </button>
+        )}
+        {evaluation && evaluation.overall > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowQuality((value) => !value)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1 text-[11px] font-medium text-neutral-600 transition-colors hover:bg-black/[0.05] dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-neutral-300 dark:hover:bg-white/[0.06]"
+          >
+            Quality details
+            <ChevronDown size={12} className={`transition-transform ${showQuality ? 'rotate-180' : ''}`} />
+          </button>
+        )}
 
-      {/* Top bar: Evaluation + Actions */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {evaluation && <EvaluationBar scores={evaluation} />}
-
-        <div className="flex items-center gap-2 shrink-0 self-start">
-          {/* TTS Listen button */}
+        <div className="ml-auto flex items-center gap-2">
           {!isRunning && reportMd && (
             <button
               onClick={handleTTS}
               disabled={isTTSLoading}
-              className="inline-flex items-center gap-2 rounded-xl border border-violet-500/25 bg-violet-500/[0.08] px-4 py-2.5 text-xs font-semibold text-violet-600 dark:text-violet-400 transition-all hover:bg-violet-500/[0.15] hover:shadow-sm active:scale-[0.97] disabled:opacity-50 disabled:cursor-wait"
+              className="inline-flex items-center gap-1.5 rounded-full border border-violet-500/25 bg-violet-500/[0.08] px-3 py-1.5 text-[11px] font-semibold text-violet-600 transition-all hover:bg-violet-500/[0.15] dark:text-violet-400 disabled:cursor-wait disabled:opacity-50"
             >
               {isTTSLoading ? (
                 <>
-                  <Loader2 size={14} className="animate-spin" />
+                  <Loader2 size={12} className="animate-spin" />
                   Generating…
                 </>
               ) : isPlaying ? (
                 <>
-                  <Square size={14} fill="currentColor" strokeWidth={0} />
+                  <Square size={12} fill="currentColor" strokeWidth={0} />
                   Stop
                 </>
               ) : (
                 <>
-                  <Volume2 size={14} />
+                  <Volume2 size={12} />
                   Listen
                 </>
               )}
             </button>
           )}
 
-          {/* PDF Download button */}
           {runId && !isRunning && canDownloadPdf && (
             <button
               onClick={handleDownloadPdf}
               disabled={isDownloading}
-              className="inline-flex items-center gap-2 rounded-xl border border-orange-500/25 bg-orange-500/[0.08] px-4 py-2.5 text-xs font-semibold text-orange-600 dark:text-orange-400 transition-all hover:bg-orange-500/[0.15] hover:shadow-sm active:scale-[0.97] disabled:opacity-50 disabled:cursor-wait"
+              className="inline-flex items-center gap-1.5 rounded-full border border-orange-500/25 bg-orange-500/[0.08] px-3 py-1.5 text-[11px] font-semibold text-orange-600 transition-all hover:bg-orange-500/[0.15] dark:text-orange-400 disabled:cursor-wait disabled:opacity-50"
             >
               {isDownloading ? (
                 <>
-                  <Loader2 size={14} className="animate-spin" />
+                  <Loader2 size={12} className="animate-spin" />
                   {TEXT_CONFIG.reportViewer.generatingPdf}
                 </>
               ) : (
                 <>
-                  <Download size={14} />
+                  <Download size={12} />
                   {TEXT_CONFIG.reportViewer.downloadPdf}
                 </>
               )}
@@ -243,6 +260,10 @@ export function ReportViewer({
           )}
         </div>
       </div>
+
+      {showQuality && evaluation && (
+        <EvaluationBar scores={evaluation} />
+      )}
 
       {/* Report content — with contained overflow */}
       <article className="markdown-body text-reveal overflow-x-auto break-words">
@@ -305,8 +326,11 @@ export function ReportViewer({
         </ReactMarkdown>
       </article>
 
-      {/* Sources panel */}
-      {sources.length > 0 && <SourcesPanel sources={sources} citations={citations} />}
+      {showSources && sources.length > 0 && (
+        <div className="rounded-2xl border border-black/[0.06] bg-black/[0.02] px-4 py-4 dark:border-white/[0.06] dark:bg-white/[0.03]">
+          <SourcesPanel sources={sources} citations={citations} />
+        </div>
+      )}
     </div>
   );
 }
@@ -329,7 +353,7 @@ function EvaluationBar({ scores }: { scores: EvaluationScores }) {
   if (!hasScores) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-black/[0.06] bg-white/80 p-3 dark:border-white/[0.06] dark:bg-[#111]/80 sm:gap-3 sm:p-4 backdrop-blur-sm flex-1">
+    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-black/[0.06] bg-black/[0.02] p-3 dark:border-white/[0.06] dark:bg-white/[0.03] sm:gap-3 sm:p-4">
       <span className="w-full text-xs font-medium text-neutral-500 sm:w-auto">
         {TEXT_CONFIG.reportViewer.qualityScores}
       </span>

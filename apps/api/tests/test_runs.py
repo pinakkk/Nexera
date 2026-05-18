@@ -5,8 +5,14 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import jwt
 from httpx import AsyncClient
 from app.api.v1.runs import _is_pdf_eligible
+
+
+def _auth_headers(user_id: str) -> dict[str, str]:
+    token = jwt.encode({"sub": user_id}, "test-secret", algorithm="HS256")
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.mark.asyncio
@@ -23,6 +29,7 @@ async def test_create_run_returns_pending(async_client: AsyncClient) -> None:
     data = response.json()
     assert "run_id" in data
     assert data["status"] == "pending"
+    assert data["thread_id"] == data["run_id"]
     assert len(data["run_id"]) == 36  # UUID format
 
 
@@ -120,6 +127,7 @@ async def test_create_run_with_constraints(async_client: AsyncClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "pending"
+    assert "thread_id" in data
 
 
 @pytest.mark.asyncio
@@ -159,6 +167,72 @@ async def test_submit_steering_run_not_found(async_client: AsyncClient) -> None:
         json={"message": "Use only peer-reviewed sources."},
     )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_anonymous_runs_are_scoped_by_session(async_client: AsyncClient) -> None:
+    with patch("app.api.v1.runs._run_orchestrator", new_callable=AsyncMock) as mock_orch:
+        mock_orch.return_value = None
+        create_resp = await async_client.post(
+            "/v1/runs",
+            json={"query": "Keep this anonymous thread private"},
+        )
+
+    run_id = create_resp.json()["run_id"]
+    other_session = AsyncClient(
+        transport=async_client._transport,
+        base_url="http://testserver",
+        headers={"X-Anonymous-Session-ID": "anon-other-session"},
+    )
+    async with other_session:
+        get_resp = await other_session.get(f"/v1/runs/{run_id}")
+        thread_resp = await other_session.get(f"/v1/runs/thread/{create_resp.json()['thread_id']}")
+
+    assert get_resp.status_code == 404
+    assert thread_resp.status_code == 200
+    assert thread_resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_signed_in_user_cannot_access_other_users_run(async_client: AsyncClient) -> None:
+    with patch("app.api.v1.runs._run_orchestrator", new_callable=AsyncMock) as mock_orch:
+        mock_orch.return_value = None
+        create_resp = await async_client.post(
+            "/v1/runs",
+            json={"query": "User scoped run"},
+            headers=_auth_headers("user_a"),
+        )
+
+    run_id = create_resp.json()["run_id"]
+    other_user_resp = await async_client.get(
+        f"/v1/runs/{run_id}",
+        headers=_auth_headers("user_b"),
+    )
+    own_user_resp = await async_client.get(
+        f"/v1/runs/{run_id}",
+        headers=_auth_headers("user_a"),
+    )
+
+    assert other_user_resp.status_code == 404
+    assert own_user_resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_follow_up_run_reuses_thread_id(async_client: AsyncClient) -> None:
+    with patch("app.api.v1.runs._run_orchestrator", new_callable=AsyncMock) as mock_orch:
+        mock_orch.return_value = None
+        first = await async_client.post(
+            "/v1/runs",
+            json={"query": "First thread turn"},
+        )
+        thread_id = first.json()["thread_id"]
+        second = await async_client.post(
+            "/v1/runs",
+            json={"query": "Second thread turn", "thread_id": thread_id},
+        )
+
+    assert second.status_code == 200
+    assert second.json()["thread_id"] == thread_id
 
 
 def test_pdf_eligibility_rejects_short_chat_output() -> None:
