@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useAuth } from '@workos-inc/authkit-nextjs/components';
+import { useAuth } from '@/lib/auth-context';
 import { handleSignOut } from '@/app/actions/auth';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';

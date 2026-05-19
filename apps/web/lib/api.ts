@@ -35,7 +35,7 @@ const API_KEYS_STORAGE_KEY = 'nexara-api-keys';
 /** Module-level auth token getter set by the Providers component. */
 let _getAuthToken: (() => Promise<string | null>) | null = null;
 
-/** Called once from Providers to wire up the WorkOS auth token getter. */
+/** Called once from Providers to wire up the Supabase auth token getter. */
 export function setAuthTokenGetter(getter: () => Promise<string | null>): void {
   _getAuthToken = getter;
 }

@@ -1,46 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { handleAuth } from '@workos-inc/authkit-nextjs';
+import { createClient } from '@/lib/supabase/server';
 
 /**
  * GET /api/auth/callback
  *
- * WorkOS redirects here after the user authenticates. We delegate to
- * AuthKit's handleAuth() which:
- *   1. Exchanges the authorization code for session tokens.
- *   2. Sets a secure, httpOnly session cookie (wos-session).
- *   3. Redirects to the configured post-login destination (/).
- *
- * The cookie is configured by WORKOS_COOKIE_PASSWORD in .env.local.
+ * Supabase redirects here after Google authentication with a `code`
+ * query param. We exchange it for a session; the Supabase server client
+ * sets the auth cookies. Then we redirect to the post-login destination.
  */
-export const GET = handleAuth({
-    returnPathname: '/',
-    onError: async ({ error, request }) => {
-        // Log the full error for debugging
-        console.error('[auth/callback] Authentication error:', {
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-            url: request.url,
-            code: request.nextUrl.searchParams.get('code') ? 'present' : 'missing',
-            state: request.nextUrl.searchParams.get('state') ? 'present' : 'missing',
-            errorParam: request.nextUrl.searchParams.get('error'),
-            errorDescription: request.nextUrl.searchParams.get('error_description'),
-        });
+export async function GET(request: NextRequest) {
+    const { searchParams, origin } = new URL(request.url);
+    const code = searchParams.get('code');
+    const errorParam = searchParams.get('error_description') || searchParams.get('error');
 
-        // Check if WorkOS returned an error directly
-        const workosError = request.nextUrl.searchParams.get('error');
-        const workosDesc = request.nextUrl.searchParams.get('error_description');
-
-        let errorMessage = 'auth_failed';
-        if (workosError) {
-            errorMessage = `${workosError}: ${workosDesc || 'Unknown error'}`;
-        } else if (error instanceof Error) {
-            errorMessage = error.message;
-        }
-
-        // Redirect back to sign-in with the actual error
-        const signInUrl = new URL('/sign-in', request.url);
-        signInUrl.searchParams.set('error', errorMessage);
+    if (errorParam) {
+        const signInUrl = new URL('/sign-in', origin);
+        signInUrl.searchParams.set('error', errorParam);
         return NextResponse.redirect(signInUrl);
-    },
-});
+    }
 
+    if (!code) {
+        const signInUrl = new URL('/sign-in', origin);
+        signInUrl.searchParams.set('error', 'auth_failed');
+        return NextResponse.redirect(signInUrl);
+    }
+
+    const supabase = await createClient();
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (error) {
+        console.error('[auth/callback] Code exchange failed:', error.message);
+        const signInUrl = new URL('/sign-in', origin);
+        signInUrl.searchParams.set('error', error.message);
+        return NextResponse.redirect(signInUrl);
+    }
+
+    return NextResponse.redirect(new URL('/', origin));
+}

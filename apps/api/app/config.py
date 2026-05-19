@@ -110,8 +110,14 @@ class Settings(BaseSettings):
     MEMORY_MAX_ENTRIES: int = 100
     MEMORY_TOP_K: int = 5
 
-    # ── Authentication (WorkOS — managed on Next.js layer) ───────────────────
-    # No backend WorkOS keys needed; JWTs are forwarded from the frontend.
+    # ── Authentication (Supabase Auth) ───────────────────────────────────────
+    # Supabase access tokens are HS256 JWTs signed with the project's JWT
+    # secret. The backend verifies the signature so a forged/expired token
+    # cannot impersonate a user. Find it in the Supabase dashboard under
+    # Project Settings → API → JWT Settings → JWT Secret.
+    SUPABASE_JWT_SECRET: str = ""
+    # Expected `aud` claim on Supabase user access tokens.
+    SUPABASE_JWT_AUDIENCE: str = "authenticated"
 
     model_config = {
         "env_file": ".env",

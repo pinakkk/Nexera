@@ -17,9 +17,11 @@ if config.config_file_name is not None:
 
 # Prefer the runtime DATABASE_URL (Supabase) over the static alembic.ini value
 # so migrations always target the same database the app uses.
+# Escape '%' as '%%' — set_main_option runs the value through ConfigParser
+# interpolation, which otherwise chokes on URL-encoded passwords (e.g. %40).
 _db_url = (get_settings().DATABASE_URL or "").strip()
 if _db_url:
-    config.set_main_option("sqlalchemy.url", _db_url)
+    config.set_main_option("sqlalchemy.url", _db_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 

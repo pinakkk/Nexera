@@ -1,14 +1,12 @@
-"""WorkOS JWT authentication utilities.
+"""Supabase JWT authentication utilities.
 
-Extracts `user_id` from the WorkOS access token sent by the frontend
+Extracts `user_id` from the Supabase access token sent by the frontend
 in the `Authorization: Bearer <token>` header.
 
-WorkOS access tokens are standard RS256 JWTs. The `sub` claim contains
-the WorkOS user ID (e.g. 'user_01JXXX...').
-
-For production, full JWKS verification should be added. For now we decode
-without signature verification since the session is already validated
-server-side by AuthKit's middleware on the Next.js layer.
+Supabase access tokens are HS256 JWTs signed with the project's JWT
+secret (SUPABASE_JWT_SECRET). The `sub` claim holds the Supabase user
+UUID. The signature, expiry, and audience are fully verified here so a
+forged or expired token cannot impersonate a user.
 """
 
 from __future__ import annotations
@@ -18,6 +16,8 @@ from typing import Optional, TypedDict
 
 import jwt
 from fastapi import HTTPException, Request
+
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -53,18 +53,29 @@ def get_user_id_from_request(request: Request) -> Optional[str]:
     if not token:
         return None
 
+    settings = get_settings()
+    if not settings.SUPABASE_JWT_SECRET:
+        logger.error(
+            "SUPABASE_JWT_SECRET is not configured; cannot verify access tokens"
+        )
+        return None
+
     try:
-        # Decode without signature verification.
-        # Session validity is enforced by WorkOS AuthKit middleware on the
-        # Next.js layer. For high-security operations, add JWKS verification:
-        # https://workos.com/docs/user-management/sessions/verifying-sessions
-        payload = jwt.decode(token, options={"verify_signature": False})
+        payload = jwt.decode(
+            token,
+            settings.SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            audience=settings.SUPABASE_JWT_AUDIENCE,
+        )
         user_id = payload.get("sub")
         if user_id and isinstance(user_id, str):
             return user_id
         return None
-    except jwt.DecodeError:
-        logger.debug("Failed to decode JWT token")
+    except jwt.ExpiredSignatureError:
+        logger.debug("Access token expired")
+        return None
+    except jwt.InvalidTokenError:
+        logger.debug("Invalid access token", exc_info=True)
         return None
     except Exception:
         logger.debug("Unexpected error decoding JWT", exc_info=True)

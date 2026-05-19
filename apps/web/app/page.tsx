@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { useAuth } from '@workos-inc/authkit-nextjs/components';
+import { useAuth } from '@/lib/auth-context';
 import { ResearchInput } from '@/components/ResearchInput';
 import { ReportViewer } from '@/components/ReportViewer';
 import { ReasoningDisclosure } from '@/components/ReasoningDisclosure';

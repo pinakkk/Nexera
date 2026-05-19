@@ -1,25 +1,23 @@
 'use client';
 
 import { useEffect } from 'react';
-import { AuthKitProvider } from '@workos-inc/authkit-nextjs/components';
 import { ThemeProvider } from '@/components/theme';
 import { AppShell } from '@/components/AppShell';
+import { AuthProvider } from '@/lib/auth-context';
 import { setAuthTokenGetter } from '@/lib/api';
+import { createClient } from '@/lib/supabase/client';
 
-/** Wires up the WorkOS AuthKit token so the API client can send it. */
+/** Wires the Supabase access token into the API client. */
 function AuthTokenSync() {
   useEffect(() => {
+    const supabase = createClient();
     setAuthTokenGetter(async () => {
       try {
-        const res = await fetch('/api/auth/token');
-        if (res.ok) {
-          const data = await res.json();
-          return data.accessToken || null;
-        }
+        const { data } = await supabase.auth.getSession();
+        return data.session?.access_token ?? null;
       } catch {
-        // no-op
+        return null;
       }
-      return null;
     });
   }, []);
 
@@ -28,11 +26,11 @@ function AuthTokenSync() {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <AuthKitProvider>
+    <AuthProvider>
       <AuthTokenSync />
       <ThemeProvider>
         <AppShell>{children}</AppShell>
       </ThemeProvider>
-    </AuthKitProvider>
+    </AuthProvider>
   );
 }
