@@ -3,19 +3,28 @@
 Extracts `user_id` from the Supabase access token sent by the frontend
 in the `Authorization: Bearer <token>` header.
 
-Supabase access tokens are HS256 JWTs signed with the project's JWT
-secret (SUPABASE_JWT_SECRET). The `sub` claim holds the Supabase user
-UUID. The signature, expiry, and audience are fully verified here so a
+Modern Supabase projects (those issuing `sb_publishable_*` API keys) sign
+access tokens with an asymmetric algorithm (RS256 / ES256) and publish the
+public keys via JWKS at `{SUPABASE_URL}/auth/v1/.well-known/jwks.json`.
+Legacy projects sign with HS256 using a shared secret.
+
+We support both: when `SUPABASE_URL` is set, we fetch and cache the JWKS
+and verify using the key whose `kid` matches the token header. When the
+algorithm is HS256 (legacy) we fall back to `SUPABASE_JWT_SECRET`. The
+signature, expiry, and audience are fully verified in both paths so a
 forged or expired token cannot impersonate a user.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional, TypedDict
+import threading
+import time
+from typing import Any, Optional, TypedDict
 
 import jwt
 from fastapi import HTTPException, Request
+from jwt import PyJWKClient
 
 from app.config import get_settings
 
@@ -25,6 +34,13 @@ ANONYMOUS_SESSION_HEADER = "X-Anonymous-Session-ID"
 ANONYMOUS_SESSION_QUERY_PARAM = "anonymous_session_id"
 ACCESS_TOKEN_QUERY_PARAM = "access_token"
 
+# JWKS client cache (one per SUPABASE_URL). PyJWKClient internally caches
+# the fetched keys with its own TTL; we just avoid recreating the client.
+_jwks_lock = threading.Lock()
+_jwks_clients: dict[str, PyJWKClient] = {}
+_jwks_url_failed_at: dict[str, float] = {}
+_JWKS_FAILURE_BACKOFF_SECONDS = 30.0
+
 
 class RequestActor(TypedDict):
     user_id: str | None
@@ -33,7 +49,7 @@ class RequestActor(TypedDict):
 
 
 def _extract_bearer_token(request: Request) -> Optional[str]:
-    """Extract the Bearer token from the Authorization header."""
+    """Extract the Bearer token from the Authorization header or query."""
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
         return auth_header[7:].strip()
@@ -43,43 +59,144 @@ def _extract_bearer_token(request: Request) -> Optional[str]:
     return None
 
 
-def get_user_id_from_request(request: Request) -> Optional[str]:
-    """Extract the WorkOS user_id (sub claim) from the request JWT.
+def _jwks_url_for(supabase_url: str) -> str:
+    return f"{supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
 
-    Returns the `sub` claim (WorkOS user ID like 'user_01JXXX...') or None
-    if no valid token is present.
+
+def _get_jwks_client(supabase_url: str) -> Optional[PyJWKClient]:
+    """Return a cached PyJWKClient for the project, or None on persistent failure."""
+    jwks_url = _jwks_url_for(supabase_url)
+    with _jwks_lock:
+        client = _jwks_clients.get(jwks_url)
+        if client is not None:
+            return client
+        last_failure = _jwks_url_failed_at.get(jwks_url)
+        if last_failure and (time.monotonic() - last_failure) < _JWKS_FAILURE_BACKOFF_SECONDS:
+            return None
+        try:
+            client = PyJWKClient(jwks_url, cache_keys=True, lifespan=3600)
+            _jwks_clients[jwks_url] = client
+            _jwks_url_failed_at.pop(jwks_url, None)
+            return client
+        except Exception:
+            logger.warning("Failed to initialize JWKS client for %s", jwks_url, exc_info=True)
+            _jwks_url_failed_at[jwks_url] = time.monotonic()
+            return None
+
+
+def _decode_with_jwks(token: str, header: dict[str, Any], audience: str, supabase_url: str) -> Optional[dict[str, Any]]:
+    client = _get_jwks_client(supabase_url)
+    if client is None:
+        return None
+    try:
+        signing_key = client.get_signing_key_from_jwt(token)
+    except Exception as exc:
+        logger.warning("Could not resolve JWKS signing key: %s", exc)
+        return None
+    alg = header.get("alg") or "RS256"
+    try:
+        return jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=[alg],
+            audience=audience,
+        )
+    except jwt.ExpiredSignatureError:
+        logger.warning("Access token expired")
+        return None
+    except jwt.InvalidAudienceError:
+        logger.warning("Invalid token audience; expected '%s'", audience)
+        return None
+    except jwt.InvalidSignatureError:
+        logger.warning("Invalid token signature (JWKS path)")
+        return None
+    except jwt.InvalidTokenError as exc:
+        logger.warning("Invalid access token (JWKS path): %s", exc)
+        return None
+
+
+def _decode_with_hs256(token: str, audience: str, secret: str) -> Optional[dict[str, Any]]:
+    try:
+        return jwt.decode(
+            token,
+            secret,
+            algorithms=["HS256"],
+            audience=audience,
+        )
+    except jwt.ExpiredSignatureError:
+        logger.warning("Access token expired")
+        return None
+    except jwt.InvalidAudienceError:
+        logger.warning("Invalid token audience; expected '%s'", audience)
+        return None
+    except jwt.InvalidSignatureError:
+        logger.warning(
+            "Invalid token signature — SUPABASE_JWT_SECRET likely does not match "
+            "the Supabase project that issued this token"
+        )
+        return None
+    except jwt.InvalidTokenError as exc:
+        logger.warning("Invalid access token (HS256 path): %s", exc)
+        return None
+
+
+def get_user_id_from_request(request: Request) -> Optional[str]:
+    """Extract the Supabase user_id (sub claim) from the request JWT.
+
+    Returns the `sub` claim (Supabase user UUID) or None if no valid
+    token is present.
     """
     token = _extract_bearer_token(request)
     if not token:
         return None
 
     settings = get_settings()
-    if not settings.SUPABASE_JWT_SECRET:
-        logger.error(
-            "SUPABASE_JWT_SECRET is not configured; cannot verify access tokens"
-        )
-        return None
 
     try:
-        payload = jwt.decode(
-            token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            audience=settings.SUPABASE_JWT_AUDIENCE,
+        header = jwt.get_unverified_header(token)
+    except jwt.InvalidTokenError as exc:
+        logger.warning("Malformed token header: %s", exc)
+        return None
+
+    alg = (header.get("alg") or "").upper()
+    payload: Optional[dict[str, Any]] = None
+
+    if alg and alg != "HS256":
+        if not settings.SUPABASE_URL:
+            logger.error(
+                "Received %s token but SUPABASE_URL is not configured; cannot verify",
+                alg,
+            )
+            return None
+        payload = _decode_with_jwks(
+            token, header, settings.SUPABASE_JWT_AUDIENCE, settings.SUPABASE_URL
         )
-        user_id = payload.get("sub")
-        if user_id and isinstance(user_id, str):
-            return user_id
+    else:
+        # HS256 — prefer the shared secret. If the project has migrated to
+        # asymmetric signing but a stale HS256 token is still in flight, try
+        # JWKS as a secondary check.
+        if settings.SUPABASE_JWT_SECRET:
+            payload = _decode_with_hs256(
+                token, settings.SUPABASE_JWT_AUDIENCE, settings.SUPABASE_JWT_SECRET
+            )
+        if payload is None and settings.SUPABASE_URL:
+            payload = _decode_with_jwks(
+                token, header, settings.SUPABASE_JWT_AUDIENCE, settings.SUPABASE_URL
+            )
+        if payload is None and not settings.SUPABASE_JWT_SECRET and not settings.SUPABASE_URL:
+            logger.error(
+                "Neither SUPABASE_URL nor SUPABASE_JWT_SECRET is configured; "
+                "cannot verify access tokens"
+            )
+            return None
+
+    if not payload:
         return None
-    except jwt.ExpiredSignatureError:
-        logger.debug("Access token expired")
-        return None
-    except jwt.InvalidTokenError:
-        logger.debug("Invalid access token", exc_info=True)
-        return None
-    except Exception:
-        logger.debug("Unexpected error decoding JWT", exc_info=True)
-        return None
+
+    user_id = payload.get("sub")
+    if user_id and isinstance(user_id, str):
+        return user_id
+    return None
 
 
 def get_anonymous_session_id_from_request(request: Request) -> Optional[str]:

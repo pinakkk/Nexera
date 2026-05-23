@@ -111,12 +111,14 @@ class Settings(BaseSettings):
     MEMORY_TOP_K: int = 5
 
     # ── Authentication (Supabase Auth) ───────────────────────────────────────
-    # Supabase access tokens are HS256 JWTs signed with the project's JWT
-    # secret. The backend verifies the signature so a forged/expired token
-    # cannot impersonate a user. Find it in the Supabase dashboard under
-    # Project Settings → API → JWT Settings → JWT Secret.
+    # Modern Supabase projects (`sb_publishable_*` keys) sign access tokens
+    # asymmetrically (RS256/ES256) and expose the verification keys at
+    # `{SUPABASE_URL}/auth/v1/.well-known/jwks.json`. Legacy projects still
+    # sign with HS256 using the project's JWT secret. Set SUPABASE_URL for
+    # JWKS-based verification (preferred); SUPABASE_JWT_SECRET is used as a
+    # fallback for legacy HS256 tokens.
+    SUPABASE_URL: str = ""
     SUPABASE_JWT_SECRET: str = ""
-    # Expected `aud` claim on Supabase user access tokens.
     SUPABASE_JWT_AUDIENCE: str = "authenticated"
 
     model_config = {

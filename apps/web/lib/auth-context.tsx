@@ -10,11 +10,7 @@ import {
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 
-/**
- * App-level auth user shape. Kept compatible with the previous WorkOS
- * `useAuth()` user (`firstName`, `email`) so consuming components only
- * needed an import swap, not a rewrite.
- */
+/** App-level auth user shape exposed by `useAuth()`. */
 export interface AuthUser {
   id: string;
   email: string | null;
@@ -75,7 +71,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-/** Drop-in replacement for the previous WorkOS `useAuth()` hook. */
 export function useAuth(): AuthContextValue {
   return useContext(AuthContext);
 }

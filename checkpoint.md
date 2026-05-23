@@ -31,14 +31,14 @@ Last audited: 2026-05-19
   reranker (flashrank), synthesizer, evaluator, verifier, refiner,
   research_gate, safety_guard, model_router, team_leader, academic,
   pdf_generator, persistent memory, event_bus, worker_pool.
-- Auth: WorkOS JWT → `RequestActor` (`user_id` for signed-in,
+- Auth: Supabase JWT (Google OAuth) → `RequestActor` (`user_id` for signed-in,
   `session_id` for anonymous); BYO-API-key + anonymous modes.
 - Startup readiness probe (`ensure_mongo_ready`) + integration checks.
 
 ### Frontend (Next.js 15 / React 19, `apps/web`)
 - Research console, live trace timeline, report viewer, sources panel,
   history, projects, settings, memory pages.
-- WorkOS AuthKit sign-in/up/callback; middleware.
+- Supabase Auth (Google OAuth) sign-in/callback; middleware refreshes session cookies.
 - SSE client for live run streaming; API client (`lib/api.ts`).
 - `/api/db/health` now **proxies the API `/health`** (Supabase-aware).
 - No direct database access (correct for V2).

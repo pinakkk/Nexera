@@ -131,9 +131,21 @@ function parseApiError(status: number, body: string): string {
     return 'A database error occurred. Please try again later.';
   }
 
-  // Auth errors
+  // Auth errors — distinguish between session/auth issues and API-key issues.
   if (status === 401 || status === 403) {
-    return 'Authentication failed. Please check your API keys in Settings.';
+    // Backend provider-key errors mention groq/brightdata/tavily/cohere/api key.
+    const looksLikeProviderKey =
+      lower.includes('api key') ||
+      lower.includes('api_key') ||
+      lower.includes('groq') ||
+      lower.includes('brightdata') ||
+      lower.includes('tavily') ||
+      lower.includes('cohere');
+    if (looksLikeProviderKey) {
+      return 'Authentication failed. Please check your API keys in Settings.';
+    }
+    // Otherwise it's a session/token problem (expired login, bad JWT, etc.).
+    return detail || 'Your session has expired or is invalid. Please sign in again.';
   }
 
   // Rate limiting

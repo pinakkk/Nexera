@@ -66,7 +66,7 @@ Nexara/
 │   │   ├── app/
 │   │   │   ├── main.py           # app factory, lifespan (DB readiness here)
 │   │   │   ├── config.py         # pydantic-settings; DATABASE_URL lives here
-│   │   │   ├── auth.py           # WorkOS JWT → RequestActor {user_id|session_id}
+│   │   │   ├── auth.py           # Supabase JWT → RequestActor {user_id|session_id}
 │   │   │   ├── db/
 │   │   │   │   ├── database.py    # async SQLAlchemy engine/session (KEEP)
 │   │   │   │   ├── models.py      # 13 ORM tables (REUSE as schema source)
@@ -376,7 +376,7 @@ migrations locally with `make migration`. `.env*` remain gitignored; only
 ```mermaid
 flowchart TD
     U["User · Next.js Web UI"] -->|Question + constraints| API["FastAPI Backend"]
-    API --> AUTH["auth.py · WorkOS JWT → RequestActor<br/>user_id | session_id"]
+    API --> AUTH["auth.py · Supabase JWT → RequestActor<br/>user_id | session_id"]
     AUTH --> ORCH["Orchestrator · Agent State Machine"]
 
     ORCH --> PLAN["Planner · decompose sub-questions"]
